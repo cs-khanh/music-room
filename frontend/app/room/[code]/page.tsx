@@ -432,26 +432,26 @@ export default function RoomPage() {
   }
 
   return (
-    <main className="mx-auto min-h-[100dvh] max-w-7xl px-3 py-3 sm:px-4 sm:py-5">
-      <header className="flex flex-col gap-3 rounded-lg border border-white/10 bg-panel/80 p-4 md:flex-row md:items-center md:justify-between">
+    <main className="mx-auto min-h-[100dvh] max-w-7xl overflow-x-hidden px-3 py-3 sm:px-4 sm:py-5">
+      <header className="flex flex-col gap-3 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
           <Link href="/" className="text-sm text-accent">
             Back home
           </Link>
-          <h1 className="mt-1 truncate text-2xl font-semibold">{room?.name ?? roomCode}</h1>
+          <h1 className="mt-1 truncate text-xl font-semibold sm:text-2xl">{room?.name ?? roomCode}</h1>
           <p className="text-sm text-muted">Code {roomCode}</p>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-          <button onClick={() => void copyInvite()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm">
+        <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
+          <button onClick={() => void copyInvite()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm sm:w-auto">
             <Copy size={16} />
             Copy invite
           </button>
-          <div className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-muted">
+          <div className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-muted sm:w-auto">
             <Users size={16} />
             {onlineMembers.length} online
           </div>
-          <div className="col-span-2 text-sm text-muted sm:col-span-1">{isOwner ? 'You are owner' : 'Member listening mode'}</div>
-          <button onClick={() => void leaveRoom()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-danger/30 px-3 text-sm text-danger">
+          <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-sm text-muted sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">{isOwner ? 'You are owner' : 'Member listening mode'}</div>
+          <button onClick={() => void leaveRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-danger/30 px-3 text-sm text-danger sm:w-auto">
             <LogOut size={16} />
             Leave
           </button>
@@ -460,8 +460,8 @@ export default function RoomPage() {
 
       {error ? <p className="mt-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
 
-      <section className="mt-4 grid gap-4 lg:grid-cols-[1fr_24rem]">
-        <div className="rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+      <section className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
           <YouTubeRoomPlayer ref={playerRef} isOwner={isOwner} state={state} onEnded={handleEnded} onProgress={setProgress} />
 
           <div className="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
@@ -476,8 +476,8 @@ export default function RoomPage() {
                 </button>
               ) : null}
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <span className="w-10 text-xs text-muted">{formatTime(progress.currentTime)}</span>
+            <div className="mt-3 flex items-center gap-2 sm:gap-3">
+              <span className="w-9 text-xs text-muted sm:w-10">{formatTime(progress.currentTime)}</span>
               <input
                 aria-label="Seek"
                 className="h-1.5 min-w-0 flex-1 accent-accent"
@@ -488,18 +488,18 @@ export default function RoomPage() {
                 type="range"
                 value={Math.min(progress.currentTime, Math.max(progress.duration, 1))}
               />
-              <span className="w-10 text-right text-xs text-muted">{formatTime(progress.duration)}</span>
+              <span className="w-9 text-right text-xs text-muted sm:w-10">{formatTime(progress.duration)}</span>
             </div>
           </div>
 
           <div className="mt-4 flex flex-col gap-3 rounded-lg border border-white/10 bg-black/20 p-3 md:flex-row md:items-center md:justify-between">
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap">
               {isOwner ? (
                 <>
                   <button
                     onClick={() => void togglePlayPause()}
                     disabled={controlAction === 'play-pause'}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {state?.status === 'playing' ? <Pause size={16} /> : <Play size={16} />}
                     {controlAction === 'play-pause' ? 'Updating' : state?.status === 'playing' ? 'Pause' : 'Play'}
@@ -507,7 +507,7 @@ export default function RoomPage() {
                   <button
                     onClick={() => void next()}
                     disabled={controlAction === 'next'}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     <SkipForward size={16} />
                     {controlAction === 'next' ? 'Skipping' : 'Next'}
@@ -517,7 +517,7 @@ export default function RoomPage() {
               <button
                 onClick={() => void sync()}
                 disabled={controlAction === 'sync'}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 <RefreshCcw size={16} />
                 {controlAction === 'sync' ? 'Syncing' : 'Sync'}
@@ -551,7 +551,7 @@ export default function RoomPage() {
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {results.map((video) => (
-              <article key={video.videoId} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 rounded-lg border border-white/10 bg-black/20 p-2 sm:grid-cols-[6rem_1fr]">
+              <article key={video.videoId} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-lg border border-white/10 bg-black/20 p-2 min-[420px]:grid-cols-[5rem_minmax(0,1fr)] sm:grid-cols-[6rem_1fr]">
                 <img src={video.thumbnailUrl} alt="" className="aspect-video w-full rounded-md object-cover" />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{video.title}</p>
@@ -575,7 +575,7 @@ export default function RoomPage() {
           </div>
         </div>
 
-        <aside className="rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+        <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
           <h2 className="text-lg font-semibold">Queue</h2>
           <div className="mt-4 space-y-3">
             {queue.length === 0 ? (
@@ -605,11 +605,11 @@ export default function RoomPage() {
                     }
                   }}
                   onDragEnd={() => setDraggingQueueItemId(null)}
-                  className={`grid grid-cols-[auto_3.75rem_minmax(0,1fr)] items-center gap-3 rounded-md border p-2 transition sm:grid-cols-[auto_4.5rem_minmax(0,1fr)_auto] ${
+                  className={`grid grid-cols-[auto_3.25rem_minmax(0,1fr)] items-center gap-2 rounded-md border p-2 transition min-[420px]:grid-cols-[auto_3.75rem_minmax(0,1fr)] sm:grid-cols-[auto_4.5rem_minmax(0,1fr)] sm:gap-3 ${
                     draggingQueueItemId === item.id ? 'border-accent/60 bg-accent/10 opacity-70' : 'border-white/10 bg-black/20'
                   }`}
                 >
-                  <div className="grid w-7 place-items-center text-muted">
+                  <div className="grid w-5 place-items-center text-muted sm:w-7">
                     {isOwner ? <GripVertical size={16} /> : <span className="text-xs">{index + 1}</span>}
                   </div>
                   {item.thumbnailUrl ? (
@@ -622,7 +622,7 @@ export default function RoomPage() {
                     <p className="mt-1 truncate text-xs text-muted">{item.channelTitle ?? item.status}</p>
                   </div>
                   {isOwner ? (
-                    <div className="col-span-3 flex items-center justify-end gap-1 sm:col-span-1">
+                    <div className="col-span-3 flex items-center justify-end gap-1">
                       <button
                         onClick={() => void playQueueItemNow(item.id)}
                         disabled={playingQueueItemId === item.id}

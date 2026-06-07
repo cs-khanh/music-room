@@ -452,21 +452,21 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-[100dvh] overflow-hidden px-3 py-3 text-foreground sm:px-4 md:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4">
-        <header className="flex flex-col gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3 backdrop-blur md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
+    <main className="min-h-[100dvh] overflow-x-hidden px-3 py-3 text-foreground sm:px-4 md:px-6 lg:px-8">
+      <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
+        <header className="flex w-full min-w-0 max-w-full flex-col gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 backdrop-blur sm:px-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="grid size-10 shrink-0 place-items-center rounded-md bg-accent text-black shadow-lg shadow-accent/20">
               <Waves size={21} strokeWidth={2.2} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-muted">Music Room</p>
-              <h1 className="text-xl font-semibold leading-tight">Hot VN, US & UK music rooms</h1>
+              <h1 className="text-lg font-semibold leading-tight sm:text-xl">Hot VN, US & UK music rooms</h1>
             </div>
           </div>
 
-          <nav className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center md:w-auto">
-            <div className="inline-flex h-10 items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] p-1" aria-label={t.language}>
+          <nav className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
+            <div className="inline-flex h-10 w-full items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] p-1 sm:w-auto" aria-label={t.language}>
               {(['vi', 'en'] as const).map((option) => (
                 <button
                   key={option}
@@ -481,30 +481,30 @@ export default function HomePage() {
             </div>
             {me ? (
               <>
-                <button onClick={() => void toggleMyRooms()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07]">
+                <button onClick={() => void toggleMyRooms()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07] sm:w-auto">
                   <DoorOpen size={17} />
                   {t.myRooms}
                 </button>
-                <button onClick={() => void createRoom()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb]">
+                <button onClick={() => void createRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
                   <Plus size={17} />
                   {t.createRoom}
                 </button>
-                <Link href="/me" className="inline-flex h-10 min-w-0 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07]">
+                <Link href="/me" className="inline-flex h-10 min-w-0 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07] sm:w-auto">
                   <User size={17} />
                   <span className="max-w-28 truncate">{me.username}</span>
                 </Link>
-                <button onClick={() => void logout()} className="grid h-10 w-10 place-items-center rounded-md border border-white/10 bg-white/[0.03] text-muted transition hover:border-white/25 hover:text-foreground" aria-label={t.logout}>
+                <button onClick={() => void logout()} className="grid h-10 w-full place-items-center rounded-md border border-white/10 bg-white/[0.03] text-muted transition hover:border-white/25 hover:text-foreground min-[420px]:w-10" aria-label={t.logout}>
                   <LogOut size={17} />
                 </button>
               </>
             ) : (
-              <Link href="/login" className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07]">
+              <Link href="/login" className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/90 transition hover:border-white/25 hover:bg-white/[0.07] sm:w-auto">
                 <LogIn size={17} />
                 {t.login}
               </Link>
             )}
             {!me ? (
-              <button onClick={() => void createRoom()} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb]">
+              <button onClick={() => void createRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
                 <Plus size={17} />
                 {t.createRoom}
               </button>
@@ -512,7 +512,7 @@ export default function HomePage() {
           </nav>
         </header>
 
-        <section className="grid gap-3 rounded-lg border border-accent/25 bg-accent/10 p-3 lg:grid-cols-2">
+        <section className="grid w-full min-w-0 max-w-full gap-3 rounded-lg border border-accent/25 bg-accent/10 p-3 xl:grid-cols-2">
           <RecentRoomsPreview
             emptyText={me ? (language === 'vi' ? 'Phòng gần đây sẽ hiện ở đây.' : 'Recent rooms will show here.') : language === 'vi' ? 'Đăng nhập để xem phòng gần đây.' : 'Login to see recent rooms.'}
             rooms={[...myRooms.recentJoined, ...myRooms.owned].slice(0, 3)}
@@ -525,7 +525,7 @@ export default function HomePage() {
               value={roomCode}
               onChange={(event) => setRoomCode(event.target.value)}
             />
-            <button className="h-12 rounded-md border border-accent/30 px-4 text-sm font-semibold text-accent transition hover:bg-accent hover:text-black sm:w-24">
+            <button className="h-12 w-full rounded-md border border-accent/30 px-4 text-sm font-semibold text-accent transition hover:bg-accent hover:text-black sm:w-24">
               {language === 'vi' ? 'Vào' : 'Join'}
             </button>
           </form>
@@ -534,20 +534,20 @@ export default function HomePage() {
         {error ? <p className="rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
 
         {myRoomsOpen ? (
-          <section className="grid gap-4 rounded-lg border border-white/10 bg-panel/80 p-4 backdrop-blur lg:grid-cols-2">
+          <section className="grid w-full min-w-0 max-w-full gap-4 rounded-lg border border-white/10 bg-panel/80 p-4 backdrop-blur xl:grid-cols-2">
             <RoomList title={t.roomsOwned} emptyText={t.noOwnedRooms} rooms={myRooms.owned} icon="owner" enterText={t.enterRoom} />
             <RoomList title={t.roomsJoined} emptyText={t.noJoinedRooms} rooms={myRooms.recentJoined} icon="history" enterText={t.enterRoom} />
           </section>
         ) : null}
 
-        <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(22rem,0.7fr)]">
-          <div className="grid min-w-0 gap-4">
-            <section className="relative min-w-0 overflow-hidden rounded-lg border border-white/10 bg-panel/80 p-3 shadow-2xl shadow-black/30 backdrop-blur sm:p-4 md:p-5">
+        <section className="grid w-full min-w-0 max-w-full gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,0.7fr)] 2xl:grid-cols-[minmax(0,1.55fr)_minmax(22rem,0.7fr)]">
+          <div className="grid w-full min-w-0 max-w-full gap-4">
+            <section className="relative w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-panel/80 p-3 shadow-2xl shadow-black/30 backdrop-blur sm:p-4 md:p-5">
               <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" />
-              <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
-                <div className="flex min-w-0 flex-col justify-between gap-6 md:min-h-[28rem]">
+              <div className="grid w-full min-w-0 max-w-full gap-5 2xl:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="flex w-full min-w-0 max-w-full flex-col justify-between gap-6 md:min-h-[28rem]">
                   <div>
-                    <form onSubmit={search} className="flex min-h-14 items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-3 shadow-inner shadow-black/40 sm:px-4">
+                    <form onSubmit={search} className="flex min-h-14 w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-3 shadow-inner shadow-black/40 sm:px-4">
                       <Search size={21} className="shrink-0 text-muted" />
                       <input
                         className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
@@ -578,18 +578,18 @@ export default function HomePage() {
                       <SearchResultsGrid tracks={results} addText={t.add} onAdd={addToQueue} />
                     ) : null}
 
-                    <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
+                    <div className="mt-6 flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm text-muted">{t.discovery}</p>
-                        <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl md:text-5xl">{t.heroTitle}</h2>
+                        <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl md:text-4xl xl:text-5xl">{t.heroTitle}</h2>
                       </div>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-sm text-accent">
+                      <div className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-sm text-accent sm:w-auto">
                         <Radio size={16} />
                         {t.backendProxy}
                       </div>
                     </div>
 
-                    <div className="mt-6 grid gap-3 md:grid-cols-3">
+                    <div className="mt-6 grid w-full min-w-0 max-w-full gap-3 md:grid-cols-3">
                       {musicTopics.map((topic) => (
                         <button
                           key={topic.label}
@@ -613,13 +613,13 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <div className="grid min-w-0 gap-3 md:grid-cols-3">
+                  <div className="grid w-full min-w-0 max-w-full gap-3 md:grid-cols-3">
                     {starterTracks.map((track) => (
-                      <article key={track.videoId} className="group min-w-0 overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
+                      <article key={track.videoId} className="group w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
                         <div className="relative aspect-video overflow-hidden bg-black">
                           <button
                             onClick={() => void searchTopic({ label: track.title, query: track.query })}
-                            className={`flex size-full flex-col justify-between bg-gradient-to-br ${track.cover} p-4 text-left text-black transition duration-300 group-hover:scale-105`}
+                            className={`flex h-full w-full min-w-0 flex-col justify-between bg-gradient-to-br ${track.cover} p-4 text-left text-black transition duration-300 group-hover:scale-105`}
                           >
                             <span className="inline-flex size-10 items-center justify-center rounded-full bg-black/20 text-sm font-bold text-white backdrop-blur">
                               {track.mood}
@@ -642,7 +642,7 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <aside className="min-w-0 overflow-hidden rounded-lg border border-white/10 bg-black/25 p-3 sm:p-4">
+                <aside className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-black/25 p-3 sm:p-4">
                   {playerState ? (
                     <YouTubeRoomPlayer
                       ref={playerRef}
@@ -719,8 +719,8 @@ export default function HomePage() {
               </div>
             </section>
 
-            <section className="grid gap-4 md:grid-cols-[1fr_0.82fr]">
-              <div className="rounded-lg border border-white/10 bg-panel/75 p-4 backdrop-blur">
+            <section className="grid w-full min-w-0 max-w-full gap-4 xl:grid-cols-[1fr_0.82fr]">
+              <div className="min-w-0 rounded-lg border border-white/10 bg-panel/75 p-4 backdrop-blur">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm text-muted">{t.quickSuggestions}</p>
@@ -730,7 +730,7 @@ export default function HomePage() {
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {recentTracks.length > 0 ? recentTracks.slice(0, 3).map((track) => (
-                    <button key={track.videoId} onClick={() => startVideo(track)} className="flex min-h-24 items-end rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
+                    <button key={track.videoId} onClick={() => startVideo(track)} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
                       {track.thumbnailUrl ? <img src={track.thumbnailUrl} alt="" className="mr-3 size-11 shrink-0 rounded-md object-cover" /> : <span className="mr-3 size-11 shrink-0 rounded-md bg-white/10" />}
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{track.title}</span>
@@ -738,7 +738,7 @@ export default function HomePage() {
                       </span>
                     </button>
                   )) : fallbackRecentTopics.map((track) => (
-                    <button key={track.title} onClick={() => void searchTopic({ label: track.title, query: track.query })} className="flex min-h-24 items-end rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
+                    <button key={track.title} onClick={() => void searchTopic({ label: track.title, query: track.query })} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
                       <span className={`mr-3 size-11 shrink-0 rounded-md bg-gradient-to-br ${track.color}`} />
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{track.title}</span>
@@ -749,7 +749,7 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-accent/20 bg-accent/10 p-4">
+              <div className="min-w-0 rounded-lg border border-accent/20 bg-accent/10 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm text-accent">{t.roomMode}</p>
@@ -758,7 +758,7 @@ export default function HomePage() {
                   </div>
                   <Headphones size={22} className="text-accent" />
                 </div>
-                <button onClick={() => void createRoom()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black">
+                <button onClick={() => void createRoom()} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black sm:w-auto">
                   <Plus size={16} />
                   {t.createRoom}
                 </button>
@@ -766,7 +766,7 @@ export default function HomePage() {
             </section>
           </div>
 
-          <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 shadow-2xl shadow-black/25 backdrop-blur sm:p-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)]">
+          <aside className="w-full min-w-0 max-w-full rounded-lg border border-white/10 bg-panel/80 p-3 shadow-2xl shadow-black/25 backdrop-blur sm:p-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)]">
             <div>
               <p className="text-sm text-muted">{t.personalQueue}</p>
               <h2 className="text-xl font-semibold">{t.upNext}</h2>
@@ -799,7 +799,7 @@ export default function HomePage() {
                 <div className="grid size-10 place-items-center rounded-md bg-danger/15 text-danger">
                   <ListMusic size={20} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{t.localQueue}</p>
                   <p className="mt-1 text-xs leading-5 text-muted">{t.localQueueHelp}</p>
                 </div>
@@ -842,7 +842,7 @@ function RoomList({
             <Link
               key={room.code}
               href={`/room/${room.code}`}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-white/10 bg-black/20 p-3 transition hover:border-accent/40 hover:bg-white/[0.05]"
+              className="grid grid-cols-1 items-center gap-3 rounded-md border border-white/10 bg-black/20 p-3 transition hover:border-accent/40 hover:bg-white/[0.05] sm:grid-cols-[minmax(0,1fr)_auto]"
             >
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
@@ -853,7 +853,7 @@ function RoomList({
                   {room.currentTitle ?? room.playerStatus} · {room.onlineMemberCount}/{room.memberCount} online · {formatShortDate(room.lastSeenAt ?? room.updatedAt)}
                 </span>
               </span>
-              <span className="inline-flex h-8 items-center rounded-md bg-accent px-2 text-xs font-semibold text-black">{enterText}</span>
+              <span className="inline-flex h-8 w-full items-center justify-center rounded-md bg-accent px-2 text-xs font-semibold text-black sm:w-auto">{enterText}</span>
             </Link>
           ))
         )}
@@ -873,7 +873,7 @@ function RecentRoomsPreview({ emptyText, rooms, title }: { emptyText: string; ro
       {rooms.length === 0 ? (
         <p className="mt-2 text-sm text-muted">{emptyText}</p>
       ) : (
-        <div className="mt-2 grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+        <div className="mt-2 grid min-w-0 gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
           {rooms.map((room) => (
             <Link
               key={room.code}
@@ -894,9 +894,9 @@ function RecentRoomsPreview({ emptyText, rooms, title }: { emptyText: string; ro
 
 function SearchResultsGrid({ addText, onAdd, tracks }: { addText: string; onAdd: (video: YouTubeVideo) => void; tracks: YouTubeVideo[] }) {
   return (
-    <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="mt-4 grid w-full min-w-0 max-w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {tracks.map((track) => (
-        <article key={track.videoId} className="group min-w-0 overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
+        <article key={track.videoId} className="group w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
           <div className="relative aspect-video overflow-hidden bg-black">
             {track.thumbnailUrl ? (
               <img src={track.thumbnailUrl} alt="" className="size-full object-cover opacity-85 transition duration-300 group-hover:scale-105 group-hover:opacity-100" />
