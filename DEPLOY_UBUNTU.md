@@ -143,18 +143,86 @@ npm run build -w backend
 npm run build -w frontend
 ```
 
-## 7. Chạy app bằng PM2
+## 7. Chạy app production
+
+Không dùng các lệnh dev cho production:
+
+```bash
+npm run dev:frontend
+npm run dev:backend
+npm run start:dev -w backend
+next dev
+nest start --watch
+```
+
+Production phải build trước, sau đó chạy compiled backend và Next production server.
+
+### Cách A: chạy bằng tmux
+
+Tạo session backend:
+
+```bash
+cd /var/www/music-room
+tmux new -s music-backend
+npm run start:backend
+```
+
+Backend sẽ đọc `PORT=2346` từ `backend/.env`.
+
+Detach tmux: bấm `Ctrl+b`, sau đó bấm `d`.
+
+Tạo session frontend:
+
+```bash
+cd /var/www/music-room
+tmux new -s music-frontend
+npm run start:frontend
+```
+
+Frontend sẽ chạy Next production server ở port `2345`.
+
+Detach tmux: bấm `Ctrl+b`, sau đó bấm `d`.
+
+Xem lại session:
+
+```bash
+tmux ls
+tmux attach -t music-backend
+tmux attach -t music-frontend
+```
+
+Restart app khi deploy code mới:
+
+```bash
+tmux attach -t music-backend
+```
+
+Bấm `Ctrl+c`, sau đó chạy lại:
+
+```bash
+npm run start:backend
+```
+
+Làm tương tự với `music-frontend`:
+
+```bash
+npm run start:frontend
+```
+
+Lưu ý: tmux không tự restart app nếu process crash và không tự khởi động lại sau reboot. Nếu server reboot, bạn cần SSH vào và chạy lại 2 session.
+
+### Cách B: chạy bằng PM2
 
 Backend:
 
 ```bash
-pm2 start "node backend/dist/main.js" --name music-room-backend --cwd /var/www/music-room
+pm2 start "npm run start:backend" --name music-room-backend --cwd /var/www/music-room
 ```
 
 Frontend:
 
 ```bash
-pm2 start "npm run start -w frontend -- -p 2345" --name music-room-frontend --cwd /var/www/music-room
+pm2 start "npm run start:frontend" --name music-room-frontend --cwd /var/www/music-room
 ```
 
 Lưu PM2 để tự chạy lại sau reboot:
@@ -253,7 +321,7 @@ Lưu ý:
 
 ## 11. Deploy update code lần sau
 
-Mỗi lần pull code mới:
+Mỗi lần pull code mới, build lại trước:
 
 ```bash
 cd /var/www/music-room
@@ -264,6 +332,23 @@ npx prisma migrate deploy --schema backend/prisma/schema.prisma
 npm run build -w shared
 npm run build -w backend
 npm run build -w frontend
+```
+
+Nếu chạy bằng tmux, attach từng session, bấm `Ctrl+c`, rồi chạy lại:
+
+```bash
+tmux attach -t music-backend
+npm run start:backend
+```
+
+```bash
+tmux attach -t music-frontend
+npm run start:frontend
+```
+
+Nếu chạy bằng PM2:
+
+```bash
 pm2 restart music-room-backend
 pm2 restart music-room-frontend
 ```
@@ -299,4 +384,3 @@ YouTube search lỗi:
 - Kiểm tra `YOUTUBE_API_KEY`.
 - Kiểm tra quota YouTube Data API v3.
 - Không đặt key này trong frontend.
-

@@ -11,6 +11,8 @@
   "scripts": {
     "dev:frontend": "npm run dev -w frontend",
     "dev:backend": "npm run start:dev -w backend",
+    "start:frontend": "npm run start -w frontend -- -p 2345",
+    "start:backend": "npm run start:prod -w backend",
     "build": "npm run build -ws",
     "lint": "npm run lint -ws",
     "typecheck": "npm run typecheck -ws"

@@ -14,6 +14,7 @@ import { YoutubeModule } from './youtube/youtube.module';
   imports: [
     ConfigModule.forRoot({
       cache: true,
+      envFilePath: ['.env', 'backend/.env'],
       isGlobal: true
     }),
     PrismaModule,
