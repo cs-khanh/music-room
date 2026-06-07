@@ -129,6 +129,19 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return queue;
   }
 
+  @SubscribeMessage('room:queue:play-now')
+  async playQueueItemNow(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() payload: { roomCode: string; queueItemId: number }
+  ) {
+    const user = this.getSocketUser(client);
+    const result = await this.queueService.playNow(payload.roomCode, payload.queueItemId, user.id);
+    this.server.to(payload.roomCode).emit('room:player:next', result);
+    this.server.to(payload.roomCode).emit('room:player:state', result.state);
+    this.server.to(payload.roomCode).emit('room:queue:update', result.queue);
+    return result;
+  }
+
   @SubscribeMessage('room:player:play')
   async play(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string; currentTime: number }) {
     const user = this.getSocketUser(client);
@@ -160,6 +173,8 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.getSocketUser(client);
     const result = await this.playerSyncService.ended(payload.roomCode, user.id);
     this.server.to(payload.roomCode).emit('room:player:next', result);
+    this.server.to(payload.roomCode).emit('room:player:state', result.state);
+    this.server.to(payload.roomCode).emit('room:queue:update', result.queue);
     return result;
   }
 

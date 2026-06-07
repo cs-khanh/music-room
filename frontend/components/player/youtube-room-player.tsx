@@ -108,12 +108,50 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
-      if (!isOwnerRef.current) {
-        player.mute();
-      }
-
       player.playVideo();
       reportProgress();
+    }
+
+    function syncPlayerToState(nextState: RoomPlayerState) {
+      const player = getPlayer();
+      if (!player) {
+        return;
+      }
+
+      if (!nextState.currentVideoId) {
+        player.pauseVideo();
+        lastVideoId.current = null;
+        reportProgress();
+        return;
+      }
+
+      const shouldLoadVideo = lastVideoId.current !== nextState.currentVideoId;
+      lastVideoId.current = nextState.currentVideoId;
+
+      if (shouldLoadVideo) {
+        if (nextState.status === 'playing') {
+          if (!isOwnerRef.current && !player.isMuted()) {
+            player.mute();
+          }
+          player.loadVideoById(nextState.currentVideoId, nextState.currentTime);
+        } else {
+          player.cueVideoById(nextState.currentVideoId, nextState.currentTime);
+        }
+      } else {
+        player.seekTo(nextState.currentTime, true);
+      }
+
+      if (nextState.status === 'playing') {
+        player.playVideo();
+      }
+
+      if (nextState.status === 'paused' || nextState.status === 'idle') {
+        player.pauseVideo();
+      }
+
+      reportProgress();
+      window.setTimeout(reportProgress, 500);
+      window.setTimeout(reportProgress, 1500);
     }
 
     useImperativeHandle(ref, () => ({
@@ -155,9 +193,8 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         playerRef.current = new window.YT.Player(elementId.current, {
           height: '100%',
           width: '100%',
-          videoId: state?.currentVideoId ?? undefined,
           playerVars: {
-            autoplay: state?.status === 'playing' ? 1 : 0,
+            autoplay: 0,
             controls: isOwner ? 1 : 0,
             modestbranding: 1,
             playsinline: 1,
@@ -177,8 +214,9 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
             },
             onReady: () => {
               setReady(true);
-              if (stateRef.current?.status === 'playing') {
-                playVideoWithFallback();
+              const currentState = stateRef.current;
+              if (currentState) {
+                syncPlayerToState(currentState);
               }
             },
             onStateChange: (event) => {
@@ -208,26 +246,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
-      const shouldLoadVideo = lastVideoId.current !== state.currentVideoId;
-      lastVideoId.current = state.currentVideoId;
-
-      if (shouldLoadVideo) {
-        if (state.status === 'playing') {
-          player.loadVideoById(state.currentVideoId, state.currentTime);
-        } else {
-          player.cueVideoById(state.currentVideoId, state.currentTime);
-        }
-      } else {
-        player.seekTo(state.currentTime, true);
-      }
-
-      if (state.status === 'playing') {
-        playVideoWithFallback();
-      }
-
-      if (state.status === 'paused' || state.status === 'idle') {
-        player.pauseVideo();
-      }
+      syncPlayerToState(state);
     }, [ready, state?.currentTime, state?.currentVideoId, state?.status]);
 
     useEffect(() => {

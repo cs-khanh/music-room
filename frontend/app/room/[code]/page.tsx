@@ -19,7 +19,7 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react';
-import type { Room, RoomMember, RoomPlayerState, RoomQueueItem, YouTubeVideo } from '@music-room/shared';
+import type { PlayerQueuePayload, Room, RoomMember, RoomPlayerState, RoomQueueItem, YouTubeVideo } from '@music-room/shared';
 import { YouTubeRoomPlayer, type YouTubeRoomPlayerHandle } from '@/components/player/youtube-room-player';
 import { ApiError } from '@/lib/api-client';
 import { connectSocketForUser, getSocket } from '@/lib/socket-client';
@@ -136,6 +136,13 @@ export default function RoomPage() {
       setControlAction(null);
       setError(err.message);
     });
+    socket.on('exception' as never, ((payload: { message?: string }) => {
+      setAddingVideoId(null);
+      setControlAction(null);
+      setPlayingQueueItemId(null);
+      setRemovingQueueItemId(null);
+      setError(payload.message ?? 'Socket request failed.');
+    }) as never);
 
     function joinSocketRoom() {
       if (joinedSocketRoom) {
@@ -168,6 +175,7 @@ export default function RoomPage() {
       socket.off('room:owner:changed');
       socket.off('error');
       socket.off('connect_error');
+      socket.off('exception' as never);
     };
   }, [applyPlayerState, me, roomCode]);
 
@@ -242,15 +250,16 @@ export default function RoomPage() {
     setAddingVideoId(videoId);
     setError(null);
     try {
-      await queueService.add(roomCode, videoId);
-
-      if (isOwner && !state?.currentVideoId) {
-        const socket = getSocket();
-        if (socket.connected) {
-          socket.emit('room:player:play', { currentTime: 0, roomCode });
-        }
+      const socket = getSocket();
+      if (socket.connected) {
+        const nextQueue = await emitSocketWithAck<RoomQueueItem[]>((resolve) => {
+          socket.emit('room:queue:add', { roomCode, videoId }, resolve);
+        });
+        setQueue(nextQueue);
+        return;
       }
 
+      await queueService.add(roomCode, videoId);
       const nextQueue = await queueService.list(roomCode);
       setQueue(nextQueue);
     } catch (err) {
@@ -349,6 +358,15 @@ export default function RoomPage() {
     setRemovingQueueItemId(queueItemId);
     setError(null);
     try {
+      const socket = getSocket();
+      if (socket.connected) {
+        const nextQueue = await emitSocketWithAck<RoomQueueItem[]>((resolve) => {
+          socket.emit('room:queue:remove', { queueItemId, roomCode }, resolve);
+        });
+        setQueue(nextQueue);
+        return;
+      }
+
       await queueService.remove(roomCode, queueItemId);
       setQueue((current) => current.filter((item) => item.id !== queueItemId));
     } catch (err) {
@@ -362,13 +380,19 @@ export default function RoomPage() {
     setPlayingQueueItemId(queueItemId);
     setError(null);
     try {
-      const result = await queueService.playNow(roomCode, queueItemId);
-      setState(result.state);
-      setQueue(result.queue);
       const socket = getSocket();
       if (socket.connected) {
-        socket.emit('room:player:force-sync', { currentTime: 0, roomCode });
+        const result = await emitSocketWithAck<PlayerQueuePayload>((resolve) => {
+          socket.emit('room:queue:play-now', { queueItemId, roomCode }, resolve);
+        });
+        applyPlayerState(result.state);
+        setQueue(result.queue);
+        return;
       }
+
+      const result = await queueService.playNow(roomCode, queueItemId);
+      applyPlayerState(result.state);
+      setQueue(result.queue);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not play queue item.');
     } finally {
@@ -395,11 +419,15 @@ export default function RoomPage() {
 
     try {
       const queueItemIds = nextQueue.map((item) => item.id);
-      setQueue(await queueService.reorder(roomCode, queueItemIds));
       const socket = getSocket();
       if (socket.connected) {
-        socket.emit('room:queue:reorder', { queueItemIds, roomCode });
+        setQueue(await emitSocketWithAck<RoomQueueItem[]>((resolve) => {
+          socket.emit('room:queue:reorder', { queueItemIds, roomCode }, resolve);
+        }));
+        return;
       }
+
+      setQueue(await queueService.reorder(roomCode, queueItemIds));
     } catch (err) {
       setQueue(queue);
       setError(err instanceof Error ? err.message : 'Could not reorder queue.');
@@ -661,6 +689,16 @@ export default function RoomPage() {
       </section>
     </main>
   );
+}
+
+function emitSocketWithAck<T>(emit: (resolve: (payload: T) => void) => void) {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error('Socket response timed out.')), 5000);
+    emit((payload) => {
+      window.clearTimeout(timeoutId);
+      resolve(payload);
+    });
+  });
 }
 
 function formatTime(seconds: number) {
