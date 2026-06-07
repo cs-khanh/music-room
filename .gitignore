@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+backend/.env.*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Build output
+dist/
+*/dist/
+.next/
+frontend/.next/
+backend/dist/
+shared/dist/
+out/
+build/
+
+# TypeScript / Next.js cache
+*.tsbuildinfo
+.next/cache/
+frontend/.next/cache/
+
+# Logs and local process files
+*.log
+*.pid
+backend-dev*.log
+frontend-dev*.log
+backend-dev.pid
+frontend-dev.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/
+*/coverage/
+
+# Prisma / generated local output
+backend/generated/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local temp/cache
+.cache/
+tmp/
+temp/

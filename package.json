@@ -1,0 +1,21 @@
+{
+  "name": "music-room",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Music Room monorepo for personal and synchronized YouTube room listening.",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:backend": "npm run start:dev -w backend",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -ws",
+    "typecheck": "npm run typecheck -ws"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

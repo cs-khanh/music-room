@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  local
+  google
+}
+
+enum RoomRole {
+  owner
+  member
+}
+
+enum PlayerStatus {
+  idle
+  playing
+  paused
+}
+
+enum QueueItemStatus {
+  queued
+  playing
+  played
+  removed
+}
+
+model User {
+  id              BigInt            @id @default(autoincrement())
+  email           String            @unique @db.VarChar(255)
+  username        String            @db.VarChar(100)
+  passwordHash    String?           @map("password_hash") @db.VarChar(255)
+  avatarUrl       String?           @map("avatar_url") @db.Text
+  provider        AuthProvider      @default(local)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  ownedRooms      Room[]            @relation("RoomOwner")
+  roomMembers     RoomMember[]
+  queueItems      RoomQueueItem[]
+  personalHistory PersonalHistory[]
+  favorites       Favorite[]
+
+  @@map("users")
+}
+
+model Room {
+  id                           BigInt           @id @default(autoincrement())
+  code                         String           @unique @db.VarChar(20)
+  name                         String           @db.VarChar(255)
+  ownerId                      BigInt           @map("owner_id")
+  isPrivate                    Boolean          @default(false) @map("is_private")
+  currentVideoId               String?          @map("current_video_id") @db.VarChar(50)
+  currentQueueItemId           BigInt?          @map("current_queue_item_id")
+  currentTime                  Float            @default(0) @map("current_time")
+  playerStatus                 PlayerStatus     @default(idle) @map("player_status")
+  startedAt                    DateTime?        @map("started_at")
+  allowMemberAddSong           Boolean          @default(true) @map("allow_member_add_song")
+  allowMemberRemoveOwnSong     Boolean          @default(false) @map("allow_member_remove_own_song")
+  createdAt                    DateTime         @default(now()) @map("created_at")
+  updatedAt                    DateTime         @updatedAt @map("updated_at")
+  owner                        User             @relation("RoomOwner", fields: [ownerId], references: [id])
+  currentQueueItem             RoomQueueItem?   @relation("CurrentRoomQueueItem", fields: [currentQueueItemId], references: [id])
+  members                      RoomMember[]
+  queueItems                   RoomQueueItem[]  @relation("RoomQueueItems")
+
+  @@map("rooms")
+}
+
+model RoomMember {
+  id         BigInt    @id @default(autoincrement())
+  roomId     BigInt    @map("room_id")
+  userId     BigInt    @map("user_id")
+  role       RoomRole  @default(member)
+  isOnline   Boolean   @default(false) @map("is_online")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  lastSeenAt DateTime? @map("last_seen_at")
+  room       Room      @relation(fields: [roomId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId], map: "unique_room_user")
+  @@map("room_members")
+}
+
+model RoomQueueItem {
+  id             BigInt            @id @default(autoincrement())
+  roomId         BigInt            @map("room_id")
+  videoId        String            @map("video_id") @db.VarChar(50)
+  title          String            @db.VarChar(500)
+  channelTitle   String?           @map("channel_title") @db.VarChar(255)
+  thumbnailUrl   String?           @map("thumbnail_url") @db.Text
+  durationSeconds Int?             @map("duration_seconds")
+  addedBy        BigInt            @map("added_by")
+  position       Int
+  status         QueueItemStatus   @default(queued)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  room           Room              @relation("RoomQueueItems", fields: [roomId], references: [id])
+  addedByUser    User              @relation(fields: [addedBy], references: [id])
+  currentForRoom Room[]            @relation("CurrentRoomQueueItem")
+
+  @@index([roomId, position], map: "idx_room_queue_room_position")
+  @@index([roomId, status], map: "idx_room_queue_room_status")
+  @@map("room_queue")
+}
+
+model PersonalHistory {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  videoId      String   @map("video_id") @db.VarChar(50)
+  title        String   @db.VarChar(500)
+  channelTitle String?  @map("channel_title") @db.VarChar(255)
+  thumbnailUrl String?  @map("thumbnail_url") @db.Text
+  playedAt     DateTime @default(now()) @map("played_at")
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@map("personal_history")
+}
+
+model Favorite {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  videoId      String   @map("video_id") @db.VarChar(50)
+  title        String   @db.VarChar(500)
+  channelTitle String?  @map("channel_title") @db.VarChar(255)
+  thumbnailUrl String?  @map("thumbnail_url") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, videoId], map: "unique_user_video")
+  @@map("favorites")
+}
+
+model YoutubeVideoCache {
+  id              BigInt   @id @default(autoincrement())
+  videoId         String   @unique @map("video_id") @db.VarChar(50)
+  title           String   @db.VarChar(500)
+  channelTitle    String?  @map("channel_title") @db.VarChar(255)
+  thumbnailUrl    String?  @map("thumbnail_url") @db.Text
+  durationSeconds Int?     @map("duration_seconds")
+  embeddable      Boolean  @default(true)
+  rawJson         Json?    @map("raw_json")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("youtube_video_cache")
+}
+
+model YoutubeSearchCache {
+  id         BigInt   @id @default(autoincrement())
+  queryHash  String   @unique @map("query_hash") @db.VarChar(64)
+  queryText  String   @map("query_text") @db.VarChar(500)
+  resultJson Json     @map("result_json")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("youtube_search_cache")
+}
