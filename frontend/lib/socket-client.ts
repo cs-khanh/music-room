@@ -13,7 +13,6 @@ export function getSocket() {
         token: getAccessToken()
       }),
       autoConnect: false,
-      transports: ['websocket'],
       withCredentials: true
     });
   }

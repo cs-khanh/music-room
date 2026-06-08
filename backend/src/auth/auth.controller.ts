@@ -6,17 +6,19 @@ import { JwtAuthGuard } from '../common/auth/jwt-auth.guard';
 import { AuthService } from './auth.service';
 import { ChangePasswordDto, LoginDto, RegisterDto } from './dto/auth.dto';
 
-const cookieOptions = {
-  httpOnly: true,
-  sameSite: 'lax' as const,
-  secure: false,
-  path: '/'
-};
+function authCookieOptions() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    sameSite: isProduction ? ('none' as const) : ('lax' as const),
+    secure: isProduction,
+    path: '/'
+  };
+}
 
-const refreshCookieOptions = {
-  ...cookieOptions,
-  path: '/'
-};
+function refreshCookieOptions() {
+  return authCookieOptions();
+}
 
 @Controller('auth')
 export class AuthController {
@@ -38,8 +40,8 @@ export class AuthController {
 
   @Post('logout')
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie('access_token', cookieOptions);
-    response.clearCookie('refresh_token', refreshCookieOptions);
+    response.clearCookie('access_token', authCookieOptions());
+    response.clearCookie('refresh_token', refreshCookieOptions());
     return { ok: true };
   }
 
@@ -66,7 +68,7 @@ export class AuthController {
     response: Response,
     result: { accessToken: string; refreshToken: string; user: unknown }
   ) {
-    response.cookie('access_token', result.accessToken, cookieOptions);
-    response.cookie('refresh_token', result.refreshToken, refreshCookieOptions);
+    response.cookie('access_token', result.accessToken, authCookieOptions());
+    response.cookie('refresh_token', result.refreshToken, refreshCookieOptions());
   }
 }

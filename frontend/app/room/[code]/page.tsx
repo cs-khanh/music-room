@@ -60,6 +60,10 @@ export default function RoomPage() {
   const applyPlayerState = useCallback((nextState: RoomPlayerState) => {
     setControlAction(null);
     setState(nextState);
+    setProgress((current) => ({
+      ...current,
+      currentTime: nextState.currentVideoId ? nextState.currentTime : 0
+    }));
   }, []);
 
   const handleEnded = useCallback(() => {
@@ -175,6 +179,37 @@ export default function RoomPage() {
     historyVideoIdRef.current = state.currentVideoId;
     void personalService.addHistory(state.currentVideoId).catch(() => undefined);
   }, [me, state?.currentVideoId]);
+
+  useEffect(() => {
+    if (!me || isOwner) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshMemberPlayback() {
+      try {
+        const [nextState, nextQueue] = await Promise.all([playerService.sync(roomCode), queueService.list(roomCode)]);
+        if (cancelled) {
+          return;
+        }
+
+        applyPlayerState(nextState);
+        playerRef.current?.syncToState(nextState);
+        setQueue(nextQueue);
+      } catch {
+        // Socket remains the primary path; polling is only a production fallback.
+      }
+    }
+
+    void refreshMemberPlayback();
+    const intervalId = window.setInterval(() => void refreshMemberPlayback(), 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [applyPlayerState, isOwner, me, roomCode]);
 
   async function loadRoom() {
     try {
@@ -308,6 +343,7 @@ export default function RoomPage() {
     try {
       const nextState = await playerService.sync(roomCode);
       applyPlayerState(nextState);
+      playerRef.current?.syncToState(nextState);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sync player.');
     } finally {
