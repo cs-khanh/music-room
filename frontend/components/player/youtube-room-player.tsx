@@ -48,7 +48,7 @@ type YouTubePlayerConstructor = new (
       onStateChange: (event: { data: number }) => void;
     };
     height: string;
-    playerVars: Record<string, number>;
+    playerVars: Record<string, number | string>;
     videoId?: string;
     width: string;
   }
@@ -125,7 +125,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
-      const shouldLoadVideo = lastVideoId.current !== nextState.currentVideoId;
+      const shouldLoadVideo = lastVideoId.current !== nextState.currentVideoId || player.getDuration() <= 0;
       lastVideoId.current = nextState.currentVideoId;
 
       if (shouldLoadVideo) {
@@ -195,8 +195,11 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           width: '100%',
           playerVars: {
             autoplay: 0,
-            controls: isOwner ? 1 : 0,
+            controls: 1,
+            disablekb: isOwner ? 0 : 1,
+            enablejsapi: 1,
             modestbranding: 1,
+            origin: window.location.origin,
             playsinline: 1,
             rel: 0
           },
@@ -220,6 +223,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
               }
             },
             onStateChange: (event) => {
+              reportProgress();
               if (isOwner && event.data === window.YT?.PlayerState.ENDED) {
                 onEndedRef.current();
               }
@@ -247,7 +251,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       }
 
       syncPlayerToState(state);
-    }, [ready, state?.currentTime, state?.currentVideoId, state?.status]);
+    }, [ready, state]);
 
     useEffect(() => {
       if (!ready || !state?.currentVideoId) {

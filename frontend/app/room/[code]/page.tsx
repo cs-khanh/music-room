@@ -60,18 +60,6 @@ export default function RoomPage() {
   const applyPlayerState = useCallback((nextState: RoomPlayerState) => {
     setControlAction(null);
     setState(nextState);
-    window.setTimeout(() => {
-      if (!nextState.currentVideoId) {
-        return;
-      }
-
-      playerRef.current?.seekTo(nextState.currentTime);
-      if (nextState.status === 'playing') {
-        playerRef.current?.play();
-      } else {
-        playerRef.current?.pause();
-      }
-    }, 0);
   }, []);
 
   const handleEnded = useCallback(() => {
