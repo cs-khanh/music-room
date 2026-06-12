@@ -76,7 +76,7 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(payload.roomCode);
     client.data.joinedRooms ??= new Set<string>();
     client.data.joinedRooms.add(payload.roomCode);
-    await this.broadcastRoomState(payload.roomCode, user.id);
+    return this.broadcastRoomState(payload.roomCode, user.id);
   }
 
   @SubscribeMessage('room:leave')
@@ -236,6 +236,7 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(roomCode).emit('room:member:update', room.members);
     this.server.to(roomCode).emit('room:queue:update', room.queue);
     this.server.to(roomCode).emit('room:player:state', room.playerState);
+    return room;
   }
 
   private async markUserLeftRoom(roomCode: string, userId: number) {

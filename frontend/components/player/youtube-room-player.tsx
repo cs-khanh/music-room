@@ -29,6 +29,7 @@ type YouTubePlayer = {
   destroy: () => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  getPlayerState: () => number;
   getVolume: () => number;
   isMuted: () => boolean;
   loadVideoById: (videoId: string, startSeconds?: number) => void;
@@ -45,6 +46,7 @@ type YouTubePlayerConstructor = new (
   options: {
     events: {
       onAutoplayBlocked?: () => void;
+      onError?: () => void;
       onReady: () => void;
       onStateChange: (event: { data: number }) => void;
     };
@@ -60,7 +62,10 @@ declare global {
     YT?: {
       Player: YouTubePlayerConstructor;
       PlayerState: {
+        BUFFERING: number;
         ENDED: number;
+        PAUSED: number;
+        PLAYING: number;
       };
     };
     onYouTubeIframeAPIReady?: () => void;
@@ -68,6 +73,7 @@ declare global {
 }
 
 let playerApiPromise: Promise<void> | null = null;
+const playbackDriftToleranceSeconds = 2;
 
 export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoomPlayerProps>(
   function YouTubeRoomPlayer({ isOwner, onEnded, onProgress, state }, ref) {
@@ -75,13 +81,17 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const onEndedRef = useRef(onEnded);
     const onProgressRef = useRef(onProgress);
     const playerRef = useRef<YouTubePlayer | null>(null);
+    const playerContainerRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<RoomPlayerState | null>(state);
     const isOwnerRef = useRef(isOwner);
     const lastVideoId = useRef<string | null>(null);
+    const audioUnlockedRef = useRef(false);
     const recoveryAttempts = useRef({ count: 0, videoId: null as string | null });
     const [ready, setReady] = useState(false);
     const [embedFallback, setEmbedFallback] = useState(false);
     const [embedFallbackState, setEmbedFallbackState] = useState<RoomPlayerState | null>(null);
+    const [autoMuted, setAutoMuted] = useState(false);
+    const [needsUserStart, setNeedsUserStart] = useState(false);
     const [playerVersion, setPlayerVersion] = useState(0);
     const elementId = `${elementBaseId.current}-${playerVersion}`;
 
@@ -104,8 +114,31 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         currentTime: player.getCurrentTime() || 0,
         duration: player.getDuration() || 0,
         muted: player.isMuted(),
-        volume: player.getVolume()
+        volume: player.getVolume() ?? 100
       });
+    }
+
+    function clearPlayerContainer() {
+      const container = playerContainerRef.current;
+      if (!container) {
+        return;
+      }
+
+      container.replaceChildren();
+    }
+
+    function destroyPlayer() {
+      const player = getPlayer();
+      if (player) {
+        try {
+          player.destroy();
+        } catch {
+          // YouTube may already have removed its iframe during route changes.
+        }
+      }
+
+      playerRef.current = null;
+      clearPlayerContainer();
     }
 
     function playVideoWithFallback() {
@@ -114,29 +147,100 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
+      audioUnlockedRef.current = true;
+      setNeedsUserStart(false);
       player.playVideo();
       reportProgress();
     }
 
-    function recreatePlayer() {
+    function isPlayerActivelyLoadingOrPlaying() {
       const player = getPlayer();
-      if (player) {
-        player.destroy();
+      const playerState = window.YT?.PlayerState;
+      if (!player || !playerState) {
+        return false;
       }
 
-      playerRef.current = null;
+      const currentPlayerState = player.getPlayerState();
+      return currentPlayerState === playerState.PLAYING || currentPlayerState === playerState.BUFFERING;
+    }
+
+    function schedulePlaybackCheck(nextState: RoomPlayerState) {
+      if (nextState.status !== 'playing' || !nextState.currentVideoId) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        const currentState = stateRef.current;
+        if (currentState?.status !== 'playing' || currentState.currentVideoId !== nextState.currentVideoId) {
+          return;
+        }
+
+        if (!isPlayerActivelyLoadingOrPlaying()) {
+          setNeedsUserStart(true);
+        }
+      }, 1200);
+    }
+
+    function tryMutedAutoplay() {
+      const player = getPlayer();
+      const currentState = stateRef.current;
+      if (!player || currentState?.status !== 'playing' || !currentState.currentVideoId) {
+        return;
+      }
+
+      if (audioUnlockedRef.current) {
+        setNeedsUserStart(true);
+        return;
+      }
+
+      player.mute();
+      setAutoMuted(true);
+      player.playVideo();
+      reportProgress();
+      schedulePlaybackCheck(currentState);
+    }
+
+    function startListening() {
+      const currentState = stateRef.current;
+      const player = getPlayer();
+      if (!currentState?.currentVideoId || !player) {
+        return;
+      }
+
+      setNeedsUserStart(false);
+      audioUnlockedRef.current = true;
+      if (currentState.currentVideoId !== lastVideoId.current || player.getDuration() <= 0) {
+        player.loadVideoById(currentState.currentVideoId, currentState.currentTime);
+      } else {
+        player.seekTo(currentState.currentTime, true);
+      }
+      player.unMute();
+      setAutoMuted(false);
+      player.playVideo();
+      reportProgress();
+    }
+
+    function unmuteAutoplay() {
+      const player = getPlayer();
+      if (!player) {
+        return;
+      }
+
+      audioUnlockedRef.current = true;
+      player.unMute();
+      setAutoMuted(false);
+      reportProgress();
+    }
+
+    function recreatePlayer() {
+      destroyPlayer();
       lastVideoId.current = null;
       setReady(false);
       setPlayerVersion((current) => current + 1);
     }
 
     function activateEmbedFallback() {
-      const player = getPlayer();
-      if (player) {
-        player.destroy();
-      }
-
-      playerRef.current = null;
+      destroyPlayer();
       setReady(false);
       setEmbedFallbackState(stateRef.current);
       setEmbedFallback(true);
@@ -154,7 +258,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           return;
         }
 
-        if (player.getDuration() > 0) {
+        if (player.getDuration() > 0 || isPlayerActivelyLoadingOrPlaying()) {
           recoveryAttempts.current = { count: 0, videoId: currentState.currentVideoId };
           return;
         }
@@ -169,7 +273,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         }
 
         activateEmbedFallback();
-      }, 2500);
+      }, 5000);
     }
 
     function syncPlayerToState(nextState: RoomPlayerState) {
@@ -178,6 +282,17 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         setEmbedFallbackState(null);
       }
       if (embedFallback && nextState.currentVideoId && nextState.currentVideoId === lastVideoId.current) {
+        setEmbedFallbackState((current) => {
+          if (!current || current.currentVideoId !== nextState.currentVideoId || current.status !== nextState.status) {
+            return nextState;
+          }
+
+          if (nextState.status !== 'playing' && Math.abs(current.currentTime - nextState.currentTime) > playbackDriftToleranceSeconds) {
+            return nextState;
+          }
+
+          return current;
+        });
         return;
       }
       const player = getPlayer();
@@ -188,6 +303,8 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       if (!nextState.currentVideoId) {
         player.pauseVideo();
         lastVideoId.current = null;
+        setAutoMuted(false);
+        setNeedsUserStart(false);
         reportProgress();
         return;
       }
@@ -202,20 +319,36 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           player.cueVideoById(nextState.currentVideoId, nextState.currentTime);
         }
       } else {
-        player.seekTo(nextState.currentTime, true);
+        const currentTime = player.getCurrentTime() || 0;
+        const drift = Math.abs(currentTime - nextState.currentTime);
+        if (nextState.status !== 'playing' || drift > playbackDriftToleranceSeconds) {
+          player.seekTo(nextState.currentTime, true);
+        }
       }
 
       if (nextState.status === 'playing') {
-        player.playVideo();
+        setNeedsUserStart(false);
+        if (!isPlayerActivelyLoadingOrPlaying()) {
+          player.playVideo();
+          window.setTimeout(() => {
+            const currentState = stateRef.current;
+            if (currentState?.status === 'playing' && currentState.currentVideoId === nextState.currentVideoId && !isPlayerActivelyLoadingOrPlaying()) {
+              tryMutedAutoplay();
+            }
+          }, 300);
+        }
       }
 
       if (nextState.status === 'paused' || nextState.status === 'idle') {
+        setAutoMuted(false);
+        setNeedsUserStart(false);
         player.pauseVideo();
       }
 
       reportProgress();
       window.setTimeout(reportProgress, 500);
       window.setTimeout(reportProgress, 1500);
+      schedulePlaybackCheck(nextState);
       scheduleLoadFallback(nextState);
     }
 
@@ -228,9 +361,19 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       pause: () => getPlayer()?.pauseVideo(),
       play: () => playVideoWithFallback(),
       seekTo: (seconds: number) => getPlayer()?.seekTo(seconds, true),
-      setVolume: (volume: number) => getPlayer()?.setVolume(volume),
+      setVolume: (volume: number) => {
+        if (volume > 0) {
+          audioUnlockedRef.current = true;
+          setAutoMuted(false);
+        }
+        getPlayer()?.setVolume(volume);
+      },
       syncToState: (nextState: RoomPlayerState) => syncPlayerToState(nextState),
-      unMute: () => getPlayer()?.unMute()
+      unMute: () => {
+        audioUnlockedRef.current = true;
+        setAutoMuted(false);
+        getPlayer()?.unMute();
+      }
     }));
 
     useEffect(() => {
@@ -252,9 +395,16 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     useEffect(() => {
       let mounted = true;
       void loadYouTubeApi().then(() => {
-        if (!mounted || embedFallback || playerRef.current || !window.YT) {
+        const container = playerContainerRef.current;
+        if (!mounted || embedFallback || playerRef.current || !window.YT || !container) {
           return;
         }
+
+        clearPlayerContainer();
+        const mountNode = document.createElement('div');
+        mountNode.id = elementId;
+        mountNode.className = 'size-full';
+        container.appendChild(mountNode);
 
         playerRef.current = new window.YT.Player(elementId, {
           height: '100%',
@@ -272,14 +422,14 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           events: {
             onAutoplayBlocked: () => {
               const currentState = stateRef.current;
-              if (currentState?.status !== 'playing' || isOwnerRef.current) {
+              if (currentState?.status !== 'playing') {
                 return;
               }
 
-              const player = getPlayer();
-              player?.mute();
-              player?.playVideo();
-              reportProgress();
+              tryMutedAutoplay();
+            },
+            onError: () => {
+              activateEmbedFallback();
             },
             onReady: () => {
               setReady(true);
@@ -290,6 +440,9 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
             },
             onStateChange: (event) => {
               reportProgress();
+              if (event.data === window.YT?.PlayerState.PLAYING || event.data === window.YT?.PlayerState.BUFFERING) {
+                setNeedsUserStart(false);
+              }
               if (isOwner && event.data === window.YT?.PlayerState.ENDED) {
                 onEndedRef.current();
               }
@@ -300,11 +453,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
 
       return () => {
         mounted = false;
-        const player = getPlayer();
-        if (player) {
-          player.destroy();
-        }
-        playerRef.current = null;
+        destroyPlayer();
         lastVideoId.current = null;
         setReady(false);
       };
@@ -318,6 +467,14 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
 
       syncPlayerToState(state);
     }, [ready, state]);
+
+    useEffect(() => {
+      if (!embedFallback || !state?.currentVideoId) {
+        return;
+      }
+
+      syncPlayerToState(state);
+    }, [embedFallback, state]);
 
     useEffect(() => {
       if (!ready || !state?.currentVideoId) {
@@ -334,12 +491,40 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           currentTime: player.getCurrentTime() || 0,
           duration: player.getDuration() || 0,
           muted: player.isMuted(),
-          volume: player.getVolume()
+          volume: player.getVolume() ?? 100
         });
       }, 500);
 
       return () => window.clearInterval(interval);
     }, [ready, state?.currentVideoId]);
+
+    useEffect(() => {
+      if (!needsUserStart) {
+        return;
+      }
+
+      const interval = window.setInterval(() => {
+        if (isPlayerActivelyLoadingOrPlaying()) {
+          setNeedsUserStart(false);
+        }
+      }, 500);
+
+      return () => window.clearInterval(interval);
+    }, [needsUserStart]);
+
+    useEffect(() => {
+      if (ready || embedFallback || !state?.currentVideoId) {
+        return;
+      }
+
+      const timeoutId = window.setTimeout(() => {
+        if (!ready && stateRef.current?.currentVideoId) {
+          activateEmbedFallback();
+        }
+      }, 5000);
+
+      return () => window.clearTimeout(timeoutId);
+    }, [embedFallback, ready, state?.currentVideoId]);
 
     return (
       <div className="relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black">
@@ -353,10 +538,27 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
             title="YouTube fallback player"
           />
         ) : (
-          <div id={elementId} className="size-full" />
+          <div ref={playerContainerRef} className="size-full" />
         )}
         {!state?.currentVideoId ? (
           <div className="absolute inset-0 grid place-items-center bg-black text-muted">No song playing</div>
+        ) : null}
+        {autoMuted && state?.status === 'playing' && state.currentVideoId ? (
+          <div className="absolute inset-x-3 bottom-3 flex flex-col gap-2 rounded-md border border-white/10 bg-black/80 p-3 text-sm text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
+            <span>Autoplay started muted. Unmute to hear audio.</span>
+            <button className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={unmuteAutoplay} type="button">
+              Unmute
+            </button>
+          </div>
+        ) : null}
+        {needsUserStart && state?.status === 'playing' && state.currentVideoId ? (
+          <button
+            className="absolute inset-0 grid place-items-center bg-black/75 px-4 text-center text-sm font-semibold text-white"
+            onClick={startListening}
+            type="button"
+          >
+            {isOwner ? 'Click to start playback' : 'Click to start listening'}
+          </button>
         ) : null}
       </div>
     );
@@ -409,6 +611,7 @@ function isYouTubePlayer(player: YouTubePlayer | null): player is YouTubePlayer 
     typeof player.destroy === 'function' &&
     typeof player.getCurrentTime === 'function' &&
     typeof player.getDuration === 'function' &&
+    typeof player.getPlayerState === 'function' &&
     typeof player.getVolume === 'function' &&
     typeof player.isMuted === 'function' &&
     typeof player.loadVideoById === 'function' &&

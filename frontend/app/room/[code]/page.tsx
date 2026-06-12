@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Check,
   Copy,
   Heart,
   LogOut,
@@ -34,6 +35,8 @@ export default function RoomPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const roomCode = params.code;
+  const copyResetTimeoutRef = useRef<number | null>(null);
+  const syncResetTimeoutRef = useRef<number | null>(null);
   const playerRef = useRef<YouTubeRoomPlayerHandle | null>(null);
   const historyVideoIdRef = useRef<string | null>(null);
   const searchRequestIdRef = useRef(0);
@@ -46,6 +49,8 @@ export default function RoomPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<YouTubeVideo[]>([]);
   const [progress, setProgress] = useState({ currentTime: 0, duration: 0, muted: false, volume: 100 });
+  const [inviteCopyStatus, setInviteCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'synced'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [addingVideoId, setAddingVideoId] = useState<string | null>(null);
@@ -77,6 +82,17 @@ export default function RoomPage() {
   }, [roomCode]);
 
   useEffect(() => {
+    return () => {
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+      if (syncResetTimeoutRef.current !== null) {
+        window.clearTimeout(syncResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const searchQuery = query.trim();
     if (searchQuery.length < 2) {
       setResults([]);
@@ -97,7 +113,7 @@ export default function RoomPage() {
     }
 
     const socket = connectSocketForUser(me.id);
-    let joinedSocketRoom = false;
+    let joinedSocketId: string | null = null;
     const handleNext = (payload: { state: RoomPlayerState; queue: RoomQueueItem[] }) => {
       setControlAction(null);
       setQueue(payload.queue);
@@ -137,26 +153,32 @@ export default function RoomPage() {
     }) as never);
 
     function joinSocketRoom() {
-      if (joinedSocketRoom) {
+      const socketId = socket.id ?? null;
+      if (socketId && joinedSocketId === socketId) {
         return;
       }
 
-      joinedSocketRoom = true;
+      joinedSocketId = socketId;
       socket.emit('room:join', { roomCode });
       socket.emit('room:player:sync', { roomCode });
     }
 
-    if (socket.connected) {
-      joinSocketRoom();
-    } else {
-      socket.once('connect', joinSocketRoom);
+    function handleSocketDisconnect() {
+      joinedSocketId = null;
     }
 
+    if (socket.connected) {
+      joinSocketRoom();
+    }
+    socket.on('connect', joinSocketRoom);
+    socket.on('disconnect', handleSocketDisconnect);
+
     return () => {
-      if (joinedSocketRoom) {
+      if (socket.connected && joinedSocketId === socket.id) {
         socket.emit('room:leave', { roomCode });
       }
       socket.off('connect', joinSocketRoom);
+      socket.off('disconnect', handleSocketDisconnect);
       socket.off('room:state', handleRoomState);
       socket.off('room:queue:update', setQueue);
       socket.off('room:member:update', setMembers);
@@ -188,6 +210,10 @@ export default function RoomPage() {
     let cancelled = false;
 
     async function refreshMemberPlayback() {
+      if (getSocket().connected) {
+        return;
+      }
+
       try {
         const [nextState, nextQueue] = await Promise.all([playerService.sync(roomCode), queueService.list(roomCode)]);
         if (cancelled) {
@@ -195,7 +221,6 @@ export default function RoomPage() {
         }
 
         applyPlayerState(nextState);
-        playerRef.current?.syncToState(nextState);
         setQueue(nextQueue);
       } catch {
         // Socket remains the primary path; polling is only a production fallback.
@@ -203,7 +228,7 @@ export default function RoomPage() {
     }
 
     void refreshMemberPlayback();
-    const intervalId = window.setInterval(() => void refreshMemberPlayback(), 3000);
+    const intervalId = window.setInterval(() => void refreshMemberPlayback(), 10000);
 
     return () => {
       cancelled = true;
@@ -302,11 +327,24 @@ export default function RoomPage() {
       return;
     }
 
+    const isStartingPlayback = state?.status !== 'playing';
+    if (isStartingPlayback && state?.currentVideoId) {
+      playerRef.current?.play();
+    }
+
     const currentTime = playerRef.current?.getCurrentTime() ?? state?.currentTime ?? 0;
-    socket.emit(state?.status === 'playing' ? 'room:player:pause' : 'room:player:play', {
-      currentTime,
-      roomCode
-    });
+    try {
+      const nextState = await emitSocketWithAck<RoomPlayerState>((resolve) => {
+        socket.emit(state?.status === 'playing' ? 'room:player:pause' : 'room:player:play', {
+          currentTime,
+          roomCode
+        }, resolve);
+      });
+      applyPlayerState(nextState);
+    } catch (err) {
+      setControlAction(null);
+      setError(err instanceof Error ? err.message : 'Could not update playback.');
+    }
   }
 
   async function next() {
@@ -319,12 +357,34 @@ export default function RoomPage() {
       return;
     }
 
-    socket.emit('room:player:ended', { roomCode });
+    try {
+      const result = await emitSocketWithAck<PlayerQueuePayload>((resolve) => {
+        socket.emit('room:player:ended', { roomCode }, resolve);
+      });
+      applyPlayerState(result.state);
+      setQueue(result.queue);
+    } catch (err) {
+      setControlAction(null);
+      setError(err instanceof Error ? err.message : 'Could not skip song.');
+    }
   }
 
   async function sync() {
     setControlAction('sync');
+    setSyncStatus('idle');
     setError(null);
+
+    function markSynced() {
+      setSyncStatus('synced');
+      if (syncResetTimeoutRef.current !== null) {
+        window.clearTimeout(syncResetTimeoutRef.current);
+      }
+      syncResetTimeoutRef.current = window.setTimeout(() => {
+        setSyncStatus('idle');
+        syncResetTimeoutRef.current = null;
+      }, 2500);
+    }
+
     if (isOwner) {
       const socket = getSocket();
       if (!socket.connected) {
@@ -333,10 +393,20 @@ export default function RoomPage() {
         return;
       }
 
-      socket.emit('room:player:force-sync', {
-        currentTime: playerRef.current?.getCurrentTime() ?? state?.currentTime ?? 0,
-        roomCode
-      });
+      try {
+        const nextState = await emitSocketWithAck<RoomPlayerState>((resolve) => {
+          socket.emit('room:player:force-sync', {
+            currentTime: playerRef.current?.getCurrentTime() ?? state?.currentTime ?? 0,
+            roomCode
+          }, resolve);
+        });
+        applyPlayerState(nextState);
+        markSynced();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not sync player.');
+      } finally {
+        setControlAction(null);
+      }
       return;
     }
 
@@ -344,6 +414,7 @@ export default function RoomPage() {
       const nextState = await playerService.sync(roomCode);
       applyPlayerState(nextState);
       playerRef.current?.syncToState(nextState);
+      markSynced();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sync player.');
     } finally {
@@ -480,7 +551,24 @@ export default function RoomPage() {
   }
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(window.location.href);
+    function resetCopyStatusLater() {
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+      copyResetTimeoutRef.current = window.setTimeout(() => {
+        setInviteCopyStatus('idle');
+        copyResetTimeoutRef.current = null;
+      }, 2500);
+    }
+
+    try {
+      await copyText(window.location.href);
+      setInviteCopyStatus('copied');
+      resetCopyStatusLater();
+    } catch {
+      setInviteCopyStatus('failed');
+      resetCopyStatusLater();
+    }
   }
 
   return (
@@ -494,9 +582,18 @@ export default function RoomPage() {
           <p className="text-sm text-muted">Code {roomCode}</p>
         </div>
         <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
-          <button onClick={() => void copyInvite()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm sm:w-auto">
-            <Copy size={16} />
-            Copy invite
+          <button
+            onClick={() => void copyInvite()}
+            className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border px-3 text-sm transition sm:w-auto ${
+              inviteCopyStatus === 'copied'
+                ? 'border-accent/50 bg-accent/10 text-accent'
+                : inviteCopyStatus === 'failed'
+                  ? 'border-danger/50 bg-danger/10 text-danger'
+                  : 'border-white/10'
+            }`}
+          >
+            {inviteCopyStatus === 'copied' ? <Check size={16} /> : <Copy size={16} />}
+            {inviteCopyStatus === 'copied' ? 'Copied' : inviteCopyStatus === 'failed' ? 'Copy failed' : 'Copy invite'}
           </button>
           <div className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-muted sm:w-auto">
             <Users size={16} />
@@ -569,10 +666,12 @@ export default function RoomPage() {
               <button
                 onClick={() => void sync()}
                 disabled={controlAction === 'sync'}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border px-3 text-sm transition disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${
+                  syncStatus === 'synced' ? 'border-accent/50 bg-accent/10 text-accent' : 'border-white/10'
+                }`}
               >
-                <RefreshCcw size={16} />
-                {controlAction === 'sync' ? 'Syncing' : 'Sync'}
+                {syncStatus === 'synced' ? <Check size={16} /> : <RefreshCcw size={16} />}
+                {controlAction === 'sync' ? 'Syncing' : syncStatus === 'synced' ? 'Synced' : 'Sync'}
               </button>
             </div>
             <div className="flex h-10 min-w-0 items-center gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 text-muted md:w-56">
@@ -591,12 +690,12 @@ export default function RoomPage() {
             </div>
           </div>
 
-          <form onSubmit={search} className="mt-5 flex flex-col gap-2 sm:flex-row">
-            <div className="flex h-11 flex-1 items-center gap-2 rounded-md border border-white/10 bg-black/25 px-3">
-              <Search size={17} className="text-muted" />
-              <input className="min-w-0 flex-1 bg-transparent outline-none" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search YouTube" />
+          <form onSubmit={search} className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-h-14 flex-1 items-center gap-3 rounded-md border border-white/10 bg-black/25 px-4 py-4 sm:min-h-12 sm:py-0">
+              <Search size={20} className="shrink-0 text-muted sm:size-[18px]" />
+              <input className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted sm:text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search YouTube" />
             </div>
-            <button disabled={searchLoading} className="h-11 rounded-md bg-white px-4 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 sm:w-28">
+            <button disabled={searchLoading} className="h-14 rounded-md bg-white px-4 text-base font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-28 sm:text-sm">
               {searchLoading ? 'Searching' : 'Search'}
             </button>
           </form>
@@ -713,6 +812,32 @@ export default function RoomPage() {
       </section>
     </main>
   );
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back to the legacy copy path below.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.left = '-9999px';
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error('Could not copy invite link.');
+  }
 }
 
 function emitSocketWithAck<T>(emit: (resolve: (payload: T) => void) => void) {

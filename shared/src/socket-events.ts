@@ -17,16 +17,16 @@ export type ServerToClientEvents = {
 export type PlayerQueuePayload = { state: RoomPlayerState; queue: RoomQueueItem[] };
 
 export type ClientToServerEvents = {
-  'room:join': (payload: { roomCode: string }) => void;
+  'room:join': (payload: { roomCode: string }, callback?: (room: Room) => void) => void;
   'room:leave': (payload: { roomCode: string }) => void;
   'room:queue:add': (payload: { roomCode: string; videoId: string }, callback?: (queue: RoomQueueItem[]) => void) => void;
   'room:queue:remove': (payload: { roomCode: string; queueItemId: number }, callback?: (queue: RoomQueueItem[]) => void) => void;
   'room:queue:reorder': (payload: { roomCode: string; queueItemIds: number[] }, callback?: (queue: RoomQueueItem[]) => void) => void;
   'room:queue:play-now': (payload: { roomCode: string; queueItemId: number }, callback?: (payload: PlayerQueuePayload) => void) => void;
-  'room:player:play': (payload: { roomCode: string; currentTime: number }) => void;
-  'room:player:pause': (payload: { roomCode: string; currentTime: number }) => void;
+  'room:player:play': (payload: { roomCode: string; currentTime: number }, callback?: (state: RoomPlayerState) => void) => void;
+  'room:player:pause': (payload: { roomCode: string; currentTime: number }, callback?: (state: RoomPlayerState) => void) => void;
   'room:player:seek': (payload: { roomCode: string; currentTime: number }) => void;
-  'room:player:ended': (payload: { roomCode: string }) => void;
-  'room:player:sync': (payload: { roomCode: string }) => void;
-  'room:player:force-sync': (payload: { currentTime?: number; roomCode: string }) => void;
+  'room:player:ended': (payload: { roomCode: string }, callback?: (payload: PlayerQueuePayload) => void) => void;
+  'room:player:sync': (payload: { roomCode: string }, callback?: (state: RoomPlayerState) => void) => void;
+  'room:player:force-sync': (payload: { currentTime?: number; roomCode: string }, callback?: (state: RoomPlayerState) => void) => void;
 };

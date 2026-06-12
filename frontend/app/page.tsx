@@ -518,14 +518,14 @@ export default function HomePage() {
             rooms={[...myRooms.recentJoined, ...myRooms.owned].slice(0, 3)}
             title={language === 'vi' ? 'Phòng gần đây' : 'Recent rooms'}
           />
-          <form onSubmit={joinRoom} className="flex flex-col gap-3 sm:flex-row">
+          <form onSubmit={joinRoom} className="flex flex-col gap-3 sm:flex-row sm:items-start">
             <input
-              className="h-12 min-w-0 flex-1 rounded-md border border-accent/25 bg-black/35 px-4 text-base uppercase text-foreground outline-none placeholder:normal-case placeholder:text-muted focus:border-accent"
+              className="min-h-14 min-w-0 flex-1 rounded-md border border-accent/25 bg-black/35 px-4 py-4 text-base uppercase text-foreground outline-none placeholder:normal-case placeholder:text-muted focus:border-accent sm:min-h-12 sm:py-0"
               placeholder={language === 'vi' ? 'Nhập mã phòng' : 'Enter room code'}
               value={roomCode}
               onChange={(event) => setRoomCode(event.target.value)}
             />
-            <button className="h-12 w-full rounded-md border border-accent/30 px-4 text-sm font-semibold text-accent transition hover:bg-accent hover:text-black sm:w-24">
+            <button className="h-14 w-full rounded-md border border-accent/30 px-4 text-base font-semibold text-accent transition hover:bg-accent hover:text-black sm:h-12 sm:w-24 sm:text-sm">
               {language === 'vi' ? 'Vào' : 'Join'}
             </button>
           </form>
@@ -547,15 +547,15 @@ export default function HomePage() {
               <div className="grid w-full min-w-0 max-w-full gap-5 2xl:grid-cols-[minmax(0,1fr)_18rem]">
                 <div className="flex w-full min-w-0 max-w-full flex-col justify-between gap-6 md:min-h-[28rem]">
                   <div>
-                    <form onSubmit={search} className="flex min-h-14 w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-3 shadow-inner shadow-black/40 sm:px-4">
-                      <Search size={21} className="shrink-0 text-muted" />
+                    <form onSubmit={search} className="flex min-h-16 w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-white/10 bg-black/30 px-4 py-4 shadow-inner shadow-black/40 sm:min-h-14 sm:py-0">
+                      <Search size={22} className="shrink-0 text-muted sm:size-[21px]" />
                       <input
                         className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted"
                         placeholder={t.searchPlaceholder}
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                       />
-                      <button className="hidden h-9 items-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-black transition hover:bg-accent sm:inline-flex">
+                      <button className="hidden h-10 items-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-black transition hover:bg-accent sm:inline-flex">
                         <Search size={16} />
                         {loading ? t.searching : t.searchButton}
                       </button>
