@@ -84,6 +84,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const playerRef = useRef<YouTubePlayer | null>(null);
     const fullscreenContainerRef = useRef<HTMLDivElement | null>(null);
     const fullscreenButtonHideTimeoutRef = useRef<number | null>(null);
+    const fullscreenIframeRef = useRef<HTMLIFrameElement | null>(null);
     const playerContainerRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<RoomPlayerState | null>(state);
     const isOwnerRef = useRef(isOwner);
@@ -243,7 +244,8 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
-      void fullscreenContainerRef.current?.requestFullscreen?.();
+      const fullscreenTarget = fullscreenContainerRef.current?.requestFullscreen ? fullscreenContainerRef.current : fullscreenIframeRef.current;
+      void fullscreenTarget?.requestFullscreen?.();
     }
 
     function hideFullscreenButtonLater() {
@@ -593,9 +595,12 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         onMouseEnter={showFullscreenControl}
         onMouseLeave={hideFullscreenControl}
         onMouseMove={showFullscreenControl}
+        onPointerDown={showFullscreenControl}
+        onTouchStart={showFullscreenControl}
       >
         {embedFallback && (embedFallbackState ?? state)?.currentVideoId ? (
           <iframe
+            ref={fullscreenIframeRef}
             key={(embedFallbackState ?? state)!.currentVideoId!}
             allow="autoplay; encrypted-media; picture-in-picture"
             allowFullScreen
@@ -628,13 +633,13 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         ) : null}
         <button
           aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          className={`absolute bottom-3 right-3 grid size-9 place-items-center rounded-md border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 motion-reduce:transition-none ${
-            showFullscreenButton ? 'opacity-100' : 'opacity-0'
+          className={`absolute bottom-2 right-2 z-20 grid size-7 place-items-center rounded border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 sm:bottom-3 sm:right-3 sm:size-8 motion-reduce:transition-none ${
+            showFullscreenButton ? 'opacity-100' : 'opacity-100 sm:opacity-0'
           }`}
           onClick={toggleFullscreen}
           type="button"
         >
-          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
       </div>
     );
