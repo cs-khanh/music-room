@@ -97,9 +97,11 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const [autoMuted, setAutoMuted] = useState(false);
     const [needsUserStart, setNeedsUserStart] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(false);
     const [showFullscreenButton, setShowFullscreenButton] = useState(false);
     const [playerVersion, setPlayerVersion] = useState(0);
     const elementId = `${elementBaseId.current}-${playerVersion}`;
+    const fullscreenActive = isFullscreen || isPseudoFullscreen;
 
     function getPlayer() {
       const player = playerRef.current;
@@ -238,14 +240,23 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       reportProgress();
     }
 
-    function toggleFullscreen() {
-      if (document.fullscreenElement === fullscreenContainerRef.current) {
-        void document.exitFullscreen?.();
+    async function toggleFullscreen() {
+      if (isPseudoFullscreen) {
+        setIsPseudoFullscreen(false);
         return;
       }
 
-      const fullscreenTarget = fullscreenContainerRef.current?.requestFullscreen ? fullscreenContainerRef.current : fullscreenIframeRef.current;
-      void fullscreenTarget?.requestFullscreen?.();
+      if (getFullscreenElement() === fullscreenContainerRef.current) {
+        await exitNativeFullscreen();
+        return;
+      }
+
+      const iframe = fullscreenIframeRef.current ?? fullscreenContainerRef.current?.querySelector('iframe');
+      const fullscreenTarget = fullscreenContainerRef.current ?? iframe;
+      const openedNativeFullscreen = await requestNativeFullscreen(fullscreenTarget);
+      if (!openedNativeFullscreen) {
+        setIsPseudoFullscreen(true);
+      }
     }
 
     function hideFullscreenButtonLater() {
@@ -256,7 +267,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       fullscreenButtonHideTimeoutRef.current = window.setTimeout(() => {
         setShowFullscreenButton(false);
         fullscreenButtonHideTimeoutRef.current = null;
-      }, isFullscreen ? 1200 : 1800);
+      }, fullscreenActive ? 1200 : 1800);
     }
 
     function showFullscreenControl() {
@@ -571,14 +582,43 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     }, [embedFallback, ready, state?.currentVideoId]);
 
     useEffect(() => {
+      if (!state?.currentVideoId) {
+        return;
+      }
+
+      showFullscreenControl();
+    }, [state?.currentVideoId]);
+
+    useEffect(() => {
       function handleFullscreenChange() {
-        setIsFullscreen(document.fullscreenElement === fullscreenContainerRef.current);
+        const fullscreenElement = getFullscreenElement();
+        setIsFullscreen(fullscreenElement === fullscreenContainerRef.current || fullscreenElement === fullscreenIframeRef.current);
+        if (fullscreenElement) {
+          setIsPseudoFullscreen(false);
+        }
         setShowFullscreenButton(false);
       }
 
       document.addEventListener('fullscreenchange', handleFullscreenChange);
-      return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+      return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      };
     }, []);
+
+    useEffect(() => {
+      if (!isPseudoFullscreen) {
+        document.body.style.overflow = '';
+        return;
+      }
+
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
+    }, [isPseudoFullscreen]);
 
     useEffect(() => {
       return () => {
@@ -591,7 +631,11 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     return (
       <div
         ref={fullscreenContainerRef}
-        className="relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black"
+        className={
+          isPseudoFullscreen
+            ? 'fixed inset-0 z-[9999] h-[100dvh] w-screen max-w-none overflow-hidden rounded-none bg-black'
+            : 'relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black'
+        }
         onMouseEnter={showFullscreenControl}
         onMouseLeave={hideFullscreenControl}
         onMouseMove={showFullscreenControl}
@@ -632,14 +676,14 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           </button>
         ) : null}
         <button
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-label={fullscreenActive ? 'Exit fullscreen' : 'Fullscreen'}
           className={`absolute bottom-2 right-2 z-20 grid size-7 place-items-center rounded border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 sm:bottom-3 sm:right-3 sm:size-8 motion-reduce:transition-none ${
-            showFullscreenButton ? 'opacity-100' : 'opacity-100 sm:opacity-0'
+            showFullscreenButton ? 'opacity-100' : 'opacity-0'
           }`}
           onClick={toggleFullscreen}
           type="button"
         >
-          {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          {fullscreenActive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
       </div>
     );
@@ -686,6 +730,49 @@ function loadYouTubeApi() {
   }
 
   return playerApiPromise;
+}
+
+type FullscreenDocument = Document & {
+  msExitFullscreen?: () => Promise<void> | void;
+  msFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+};
+
+type FullscreenElement = Element & {
+  msRequestFullscreen?: () => Promise<void> | void;
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+function getFullscreenElement() {
+  const fullscreenDocument = document as FullscreenDocument;
+  return document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement ?? fullscreenDocument.msFullscreenElement ?? null;
+}
+
+async function requestNativeFullscreen(element: Element | null | undefined) {
+  const fullscreenElement = element as FullscreenElement | null | undefined;
+  const requestFullscreen =
+    fullscreenElement?.requestFullscreen ?? fullscreenElement?.webkitRequestFullscreen ?? fullscreenElement?.msRequestFullscreen;
+  if (!fullscreenElement || !requestFullscreen) {
+    return false;
+  }
+
+  try {
+    await requestFullscreen.call(fullscreenElement);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function exitNativeFullscreen() {
+  const fullscreenDocument = document as FullscreenDocument;
+  const exitFullscreen = document.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen ?? fullscreenDocument.msExitFullscreen;
+  if (!exitFullscreen) {
+    return;
+  }
+
+  await exitFullscreen.call(document).catch?.(() => undefined);
 }
 
 function isYouTubePlayer(player: YouTubePlayer | null): player is YouTubePlayer {
