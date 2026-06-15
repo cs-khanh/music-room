@@ -85,6 +85,29 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.leave(payload.roomCode);
     client.data.joinedRooms?.delete(payload.roomCode);
     await this.markUserLeftRoom(payload.roomCode, user.id);
+    return { ok: true as const };
+  }
+
+  @SubscribeMessage('room:member:promote-owner')
+  async promoteOwner(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string; userId: number }) {
+    const user = this.getSocketUser(client);
+    await this.roomsService.assignOwner(payload.roomCode, payload.userId, user.id);
+    return this.broadcastRoomState(payload.roomCode, user.id);
+  }
+
+  @SubscribeMessage('room:member:demote-owner')
+  async demoteOwner(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string; userId: number }) {
+    const user = this.getSocketUser(client);
+    await this.roomsService.demoteOwner(payload.roomCode, payload.userId, user.id);
+    return this.broadcastRoomState(payload.roomCode, user.id);
+  }
+
+  @SubscribeMessage('room:member:kick')
+  async kickMember(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string; userId: number }) {
+    const user = this.getSocketUser(client);
+    await this.roomsService.kickMember(payload.roomCode, payload.userId, user.id);
+    await this.removeUserSocketsFromRoom(payload.roomCode, payload.userId);
+    return this.broadcastRoomState(payload.roomCode, user.id);
   }
 
   @SubscribeMessage('room:queue:add')
@@ -255,5 +278,21 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const data = socket.data as { user?: AuthenticatedUser };
       return data.user?.id === userId;
     });
+  }
+
+  private async removeUserSocketsFromRoom(roomCode: string, userId: number) {
+    const sockets = await this.server.in(roomCode).fetchSockets();
+    await Promise.all(
+      sockets.map(async (socket) => {
+        const data = socket.data as { joinedRooms?: Set<string>; user?: AuthenticatedUser };
+        if (data.user?.id !== userId) {
+          return;
+        }
+
+        socket.emit('room:kicked', { roomCode });
+        await socket.leave(roomCode);
+        data.joinedRooms?.delete(roomCode);
+      })
+    );
   }
 }

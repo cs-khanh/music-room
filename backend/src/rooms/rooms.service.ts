@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { getRealCurrentTime, type MyRooms } from '@music-room/shared';
 import { serializePlayerState, serializeQueueItem, serializeRoomMember } from '../common/prisma/serializers';
@@ -11,7 +11,12 @@ export class RoomsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateRoomDto, userId: number) {
-    const code = await this.generateRoomCode();
+    const code = dto.code ? this.normalizeRoomCode(dto.code) : await this.generateRoomCode();
+    const existingRoom = await this.prisma.room.findUnique({ where: { code } });
+    if (existingRoom) {
+      throw new ConflictException('Room code is already taken.');
+    }
+
     const room = await this.prisma.room.create({
       data: {
         code,
@@ -44,14 +49,21 @@ export class RoomsService {
 
   async myRooms(userId: number): Promise<MyRooms> {
     const [owned, joined] = await Promise.all([
-      this.prisma.room.findMany({
+      this.prisma.roomMember.findMany({
         include: {
-          currentQueueItem: true,
-          members: { select: { isOnline: true } }
+          room: {
+            include: {
+              currentQueueItem: true,
+              members: { select: { isOnline: true } }
+            }
+          }
         },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [{ lastSeenAt: 'desc' }, { joinedAt: 'desc' }],
         take: 20,
-        where: { ownerId: BigInt(userId) }
+        where: {
+          role: 'owner',
+          userId: BigInt(userId)
+        }
       }),
       this.prisma.roomMember.findMany({
         include: {
@@ -72,7 +84,7 @@ export class RoomsService {
     ]);
 
     return {
-      owned: owned.map((room) => this.serializeRoomListItem(room, null)),
+      owned: owned.map((member) => this.serializeRoomListItem(member.room, member)),
       recentJoined: joined.map((member) => this.serializeRoomListItem(member.room, member))
     };
   }
@@ -175,36 +187,91 @@ export class RoomsService {
       throw new ForbiddenException('Target user is not a room member.');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.room.update({
-        data: { ownerId: BigInt(targetUserId) },
-        where: { id: room.id }
-      }),
-      this.prisma.roomMember.updateMany({
-        data: { role: 'member' },
-        where: { roomId: room.id }
-      }),
-      this.prisma.roomMember.update({
-        data: { role: 'owner' },
-        where: {
-          roomId_userId: {
-            roomId: room.id,
-            userId: BigInt(targetUserId)
-          }
+    await this.prisma.roomMember.update({
+      data: { role: 'owner' },
+      where: {
+        roomId_userId: {
+          roomId: room.id,
+          userId: BigInt(targetUserId)
         }
-      })
-    ]);
+      }
+    });
 
     return this.findByCode(code, targetUserId);
   }
 
-  async assertOwner(roomCode: string, userId: number) {
-    const room = await this.prisma.room.findUnique({
-      select: { ownerId: true },
-      where: { code: roomCode }
+  async demoteOwner(code: string, targetUserId: number, userId: number) {
+    const room = await this.requireRootOwner(code, userId);
+    if (targetUserId === userId) {
+      throw new ForbiddenException('Root owner cannot demote themselves.');
+    }
+
+    const target = await this.prisma.roomMember.findUnique({
+      where: {
+        roomId_userId: {
+          roomId: room.id,
+          userId: BigInt(targetUserId)
+        }
+      }
     });
 
-    return Boolean(room && room.ownerId === BigInt(userId));
+    if (!target) {
+      throw new ForbiddenException('Target user is not a room member.');
+    }
+
+    if (target.role !== 'owner') {
+      return this.findByCode(code, userId);
+    }
+
+    await this.prisma.roomMember.update({
+      data: { role: 'member' },
+      where: { id: target.id }
+    });
+
+    return this.findByCode(code, userId);
+  }
+
+  async kickMember(code: string, targetUserId: number, userId: number) {
+    const room = await this.requireOwner(code, userId);
+    if (targetUserId === userId) {
+      throw new ForbiddenException('You cannot kick yourself.');
+    }
+
+    const target = await this.prisma.roomMember.findUnique({
+      where: {
+        roomId_userId: {
+          roomId: room.id,
+          userId: BigInt(targetUserId)
+        }
+      }
+    });
+
+    if (!target) {
+      throw new ForbiddenException('Target user is not a room member.');
+    }
+
+    if (target.role === 'owner') {
+      throw new ForbiddenException('Owners cannot kick another owner.');
+    }
+
+    await this.prisma.roomMember.delete({
+      where: { id: target.id }
+    });
+
+    return this.findByCode(code, userId);
+  }
+
+  async assertOwner(roomCode: string, userId: number) {
+    const member = await this.prisma.roomMember.findFirst({
+      select: { id: true },
+      where: {
+        role: 'owner',
+        room: { code: roomCode },
+        userId: BigInt(userId)
+      }
+    });
+
+    return Boolean(member);
   }
 
   async assertMember(roomCode: string, userId: number) {
@@ -221,6 +288,31 @@ export class RoomsService {
 
   async requireOwner(roomCode: string, userId: number) {
     const room = await this.prisma.room.findUnique({
+      include: {
+        members: {
+          select: { id: true },
+          where: {
+            role: 'owner',
+            userId: BigInt(userId)
+          }
+        }
+      },
+      where: { code: roomCode }
+    });
+
+    if (!room) {
+      throw new NotFoundException('Room not found.');
+    }
+
+    if (room.members.length === 0) {
+      throw new ForbiddenException('Only the room owner can perform this action.');
+    }
+
+    return room;
+  }
+
+  async requireRootOwner(roomCode: string, userId: number) {
+    const room = await this.prisma.room.findUnique({
       where: { code: roomCode }
     });
 
@@ -229,7 +321,7 @@ export class RoomsService {
     }
 
     if (room.ownerId !== BigInt(userId)) {
-      throw new ForbiddenException('Only the room owner can perform this action.');
+      throw new ForbiddenException('Only the root room owner can perform this action.');
     }
 
     return room;
@@ -261,6 +353,10 @@ export class RoomsService {
     }
 
     throw new Error('Could not generate a unique room code.');
+  }
+
+  private normalizeRoomCode(code: string) {
+    return code.trim().toUpperCase();
   }
 
   private findRoomPayload(code: string) {

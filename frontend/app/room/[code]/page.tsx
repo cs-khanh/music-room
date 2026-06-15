@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import {
   Check,
   Copy,
+  Crown,
   Heart,
   LogOut,
   Pause,
@@ -16,6 +17,9 @@ import {
   SkipForward,
   Trash2,
   GripVertical,
+  UserCheck,
+  UserMinus,
+  UserX,
   Users,
   Volume2,
   VolumeX
@@ -31,12 +35,15 @@ import { queueService } from '@/services/queue.service';
 import { roomsService } from '@/services/rooms.service';
 import { youtubeService } from '@/services/youtube.service';
 
+const pendingRoomLeaveTimeouts = new Map<string, number>();
+
 export default function RoomPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const roomCode = params.code;
   const copyResetTimeoutRef = useRef<number | null>(null);
   const syncResetTimeoutRef = useRef<number | null>(null);
+  const skipUnmountLeaveRef = useRef(false);
   const playerRef = useRef<YouTubeRoomPlayerHandle | null>(null);
   const historyVideoIdRef = useRef<string | null>(null);
   const searchRequestIdRef = useRef(0);
@@ -58,8 +65,10 @@ export default function RoomPage() {
   const [removingQueueItemId, setRemovingQueueItemId] = useState<number | null>(null);
   const [draggingQueueItemId, setDraggingQueueItemId] = useState<number | null>(null);
   const [playingQueueItemId, setPlayingQueueItemId] = useState<number | null>(null);
+  const [memberAction, setMemberAction] = useState<{ type: 'demote' | 'kick' | 'promote'; userId: number } | null>(null);
 
-  const isOwner = useMemo(() => Boolean(me && room && room.ownerId === me.id), [me, room]);
+  const isOwner = useMemo(() => Boolean(me && members.some((member) => member.userId === me.id && member.role === 'owner')), [me, members]);
+  const isRootOwner = useMemo(() => Boolean(me && room?.ownerId === me.id), [me, room]);
   const onlineMembers = useMemo(() => members.filter((member) => member.isOnline), [members]);
 
   const applyPlayerState = useCallback((nextState: RoomPlayerState) => {
@@ -112,6 +121,9 @@ export default function RoomPage() {
       return;
     }
 
+    cancelPendingRoomLeave(roomCode, me.id);
+    skipUnmountLeaveRef.current = false;
+
     const socket = connectSocketForUser(me.id);
     let joinedSocketId: string | null = null;
     const handleNext = (payload: { state: RoomPlayerState; queue: RoomQueueItem[] }) => {
@@ -133,6 +145,15 @@ export default function RoomPage() {
     socket.on('room:player:seek', applyPlayerState);
     socket.on('room:player:force-sync', applyPlayerState);
     socket.on('room:player:next', handleNext);
+    socket.on('room:kicked', (payload) => {
+      if (payload.roomCode !== roomCode) {
+        return;
+      }
+
+      skipUnmountLeaveRef.current = true;
+      setError('You were kicked from this room.');
+      router.replace('/');
+    });
     socket.on('room:owner:changed', (payload) => {
       setRoom((current) => (current ? { ...current, ownerId: payload.ownerId } : current));
     });
@@ -174,9 +195,13 @@ export default function RoomPage() {
     socket.on('disconnect', handleSocketDisconnect);
 
     return () => {
-      if (socket.connected && joinedSocketId === socket.id) {
-        socket.emit('room:leave', { roomCode });
+      const socketId = socket.id ?? null;
+      if (!skipUnmountLeaveRef.current && socket.connected && socketId && joinedSocketId === socketId) {
+        schedulePendingRoomLeave(roomCode, me.id, socketId, () => {
+          socket.emit('room:leave', { roomCode });
+        });
       }
+
       socket.off('connect', joinSocketRoom);
       socket.off('disconnect', handleSocketDisconnect);
       socket.off('room:state', handleRoomState);
@@ -186,12 +211,13 @@ export default function RoomPage() {
       socket.off('room:player:seek', applyPlayerState);
       socket.off('room:player:force-sync', applyPlayerState);
       socket.off('room:player:next', handleNext);
+      socket.off('room:kicked');
       socket.off('room:owner:changed');
       socket.off('error');
       socket.off('connect_error');
       socket.off('exception' as never);
     };
-  }, [applyPlayerState, me, roomCode]);
+  }, [applyPlayerState, me, roomCode, router]);
 
   useEffect(() => {
     if (!me || !state?.currentVideoId || historyVideoIdRef.current === state.currentVideoId) {
@@ -544,9 +570,89 @@ export default function RoomPage() {
     setFavoriteIds((current) => new Set(current).add(videoId));
   }
 
+  async function promoteMemberToOwner(userId: number) {
+    setMemberAction({ type: 'promote', userId });
+    setError(null);
+    try {
+      const socket = getSocket();
+      if (socket.connected) {
+        const nextRoom = await emitSocketWithAck<Room>((resolve) => {
+          socket.emit('room:member:promote-owner', { roomCode, userId }, resolve);
+        });
+        setRoom(nextRoom);
+        setMembers(nextRoom.members);
+        return;
+      }
+
+      const nextRoom = await roomsService.assignOwner(roomCode, userId);
+      setRoom(nextRoom);
+      setMembers(nextRoom.members);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not promote member.');
+    } finally {
+      setMemberAction(null);
+    }
+  }
+
+  async function demoteOwnerToMember(userId: number) {
+    setMemberAction({ type: 'demote', userId });
+    setError(null);
+    try {
+      const socket = getSocket();
+      if (socket.connected) {
+        const nextRoom = await emitSocketWithAck<Room>((resolve) => {
+          socket.emit('room:member:demote-owner', { roomCode, userId }, resolve);
+        });
+        setRoom(nextRoom);
+        setMembers(nextRoom.members);
+        return;
+      }
+
+      const nextRoom = await roomsService.demoteOwner(roomCode, userId);
+      setRoom(nextRoom);
+      setMembers(nextRoom.members);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not set member role.');
+    } finally {
+      setMemberAction(null);
+    }
+  }
+
+  async function kickMember(userId: number) {
+    setMemberAction({ type: 'kick', userId });
+    setError(null);
+    try {
+      const socket = getSocket();
+      if (socket.connected) {
+        const nextRoom = await emitSocketWithAck<Room>((resolve) => {
+          socket.emit('room:member:kick', { roomCode, userId }, resolve);
+        });
+        setRoom(nextRoom);
+        setMembers(nextRoom.members);
+        return;
+      }
+
+      const nextRoom = await roomsService.kickMember(roomCode, userId);
+      setRoom(nextRoom);
+      setMembers(nextRoom.members);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not kick member.');
+    } finally {
+      setMemberAction(null);
+    }
+  }
+
   async function leaveRoom() {
-    getSocket().emit('room:leave', { roomCode });
-    await roomsService.leave(roomCode).catch(() => undefined);
+    skipUnmountLeaveRef.current = true;
+    const socket = getSocket();
+    if (socket.connected) {
+      await emitSocketWithAck<{ ok: true }>((resolve) => {
+        socket.emit('room:leave', { roomCode }, resolve);
+      }).catch(() => roomsService.leave(roomCode).catch(() => undefined));
+    } else {
+      await roomsService.leave(roomCode).catch(() => undefined);
+    }
+
     router.push('/');
   }
 
@@ -690,40 +796,6 @@ export default function RoomPage() {
             </div>
           </div>
 
-          <form onSubmit={search} className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <div className="flex min-h-14 flex-1 items-center gap-3 rounded-md border border-white/10 bg-black/25 px-4 py-4 sm:min-h-12 sm:py-0">
-              <Search size={20} className="shrink-0 text-muted sm:size-[18px]" />
-              <input className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted sm:text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search YouTube" />
-            </div>
-            <button disabled={searchLoading} className="h-14 rounded-md bg-white px-4 text-base font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-28 sm:text-sm">
-              {searchLoading ? 'Searching' : 'Search'}
-            </button>
-          </form>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {results.map((video) => (
-              <article key={video.videoId} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-lg border border-white/10 bg-black/20 p-2 min-[420px]:grid-cols-[5rem_minmax(0,1fr)] sm:grid-cols-[6rem_1fr]">
-                <img src={video.thumbnailUrl} alt="" className="aspect-video w-full rounded-md object-cover" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{video.title}</p>
-                  <p className="mt-1 truncate text-xs text-muted">{video.channelTitle}</p>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={() => void add(video.videoId)}
-                      disabled={addingVideoId === video.videoId}
-                      className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Plus size={14} />
-                      {addingVideoId === video.videoId ? 'Adding' : 'Add'}
-                    </button>
-                    <button onClick={() => void toggleFavorite(video.videoId)} className="grid size-8 place-items-center rounded-md border border-white/10 text-muted hover:text-accent" aria-label="Favorite">
-                      <Heart size={15} fill={favoriteIds.has(video.videoId) ? 'currentColor' : 'none'} />
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
         </div>
 
         <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
@@ -800,15 +872,120 @@ export default function RoomPage() {
           <div className="mt-5 rounded-lg border border-white/10 bg-black/20 p-4">
             <h3 className="text-sm font-semibold">Members</h3>
             <div className="mt-3 space-y-2">
-              {onlineMembers.map((member) => (
-                <div key={member.id} className="flex items-center justify-between gap-3 rounded-md bg-white/[0.03] px-3 py-2">
-                  <span className="min-w-0 truncate text-sm">{member.username}</span>
-                  <span className={member.role === 'owner' ? 'text-xs text-accent' : 'text-xs text-muted'}>{member.role}</span>
+              {members.map((member) => {
+                const isMe = me?.id === member.userId;
+                return (
+                <div
+                  key={member.id}
+                  className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${
+                    isMe ? 'border-accent/35 bg-accent/10' : 'border-transparent bg-white/[0.03]'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <span className={`block truncate text-sm font-medium ${isMe ? 'text-accent' : member.isOnline ? 'text-foreground' : 'text-muted'}`}>
+                      {member.username}
+                      {isMe ? <span className="ml-2 rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">you</span> : null}
+                    </span>
+                    <span className="mt-1 flex items-center gap-1.5 text-xs">
+                      {member.isOnline ? (
+                        <>
+                          <UserCheck size={13} className="text-accent" />
+                          <span className="text-accent">online</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserX size={13} className="text-muted" />
+                          <span className="text-muted">offline</span>
+                        </>
+                      )}
+                      <span className="text-muted">-</span>
+                      <span className={member.role === 'owner' ? 'text-accent' : 'text-muted'}>{member.role}</span>
+                    </span>
+                    <span className="hidden">
+                      {member.role}
+                      {member.isOnline ? '' : ' · offline'}
+                    </span>
+                  </div>
+                  {isOwner && me?.id !== member.userId ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      {member.role === 'owner' && isRootOwner ? (
+                        <button
+                          onClick={() => void demoteOwnerToMember(member.userId)}
+                          disabled={Boolean(memberAction)}
+                          className="grid size-8 place-items-center rounded-md border border-white/10 text-accent hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={`Set ${member.username} as member`}
+                          title="Set member"
+                        >
+                          <Crown size={15} fill="currentColor" />
+                        </button>
+                      ) : null}
+                      {member.role !== 'owner' ? (
+                        <>
+                          <button
+                            onClick={() => void promoteMemberToOwner(member.userId)}
+                            disabled={Boolean(memberAction)}
+                            className="grid size-8 place-items-center rounded-md border border-white/10 text-muted hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={`Promote ${member.username} to owner`}
+                            title="Set owner"
+                          >
+                            <Crown size={15} />
+                          </button>
+                          <button
+                            onClick={() => void kickMember(member.userId)}
+                            disabled={Boolean(memberAction)}
+                            className="grid size-8 place-items-center rounded-md border border-white/10 text-muted hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={`Kick ${member.username}`}
+                            title="Kick"
+                          >
+                            <UserMinus size={15} />
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </aside>
+
+        <section className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+          <form onSubmit={search} className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex min-h-14 flex-1 items-center gap-3 rounded-md border border-white/10 bg-black/25 px-4 py-4 sm:min-h-12 sm:py-0">
+              <Search size={20} className="shrink-0 text-muted sm:size-[18px]" />
+              <input className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted sm:text-sm" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search YouTube" />
+            </div>
+            <button disabled={searchLoading} className="h-14 rounded-md bg-white px-4 text-base font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:w-28 sm:text-sm">
+              {searchLoading ? 'Searching' : 'Search'}
+            </button>
+          </form>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {results.map((video) => (
+              <article key={video.videoId} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-lg border border-white/10 bg-black/20 p-2 min-[420px]:grid-cols-[5rem_minmax(0,1fr)] sm:grid-cols-[6rem_1fr]">
+                <img src={video.thumbnailUrl} alt="" className="aspect-video w-full rounded-md object-cover" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{video.title}</p>
+                  <p className="mt-1 truncate text-xs text-muted">{video.channelTitle}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => void add(video.videoId)}
+                      disabled={addingVideoId === video.videoId}
+                      className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Plus size={14} />
+                      {addingVideoId === video.videoId ? 'Adding' : 'Add'}
+                    </button>
+                    <button onClick={() => void toggleFavorite(video.videoId)} className="grid size-8 place-items-center rounded-md border border-white/10 text-muted hover:text-accent" aria-label="Favorite">
+                      <Heart size={15} fill={favoriteIds.has(video.videoId) ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
     </main>
   );
@@ -848,6 +1025,32 @@ function emitSocketWithAck<T>(emit: (resolve: (payload: T) => void) => void) {
       resolve(payload);
     });
   });
+}
+
+function cancelPendingRoomLeave(roomCode: string, userId: number) {
+  for (const [key, timeoutId] of pendingRoomLeaveTimeouts.entries()) {
+    if (!key.startsWith(`${roomCode}:${userId}:`)) {
+      continue;
+    }
+
+    window.clearTimeout(timeoutId);
+    pendingRoomLeaveTimeouts.delete(key);
+  }
+}
+
+function schedulePendingRoomLeave(roomCode: string, userId: number, socketId: string, leave: () => void) {
+  const key = `${roomCode}:${userId}:${socketId}`;
+  const existingTimeoutId = pendingRoomLeaveTimeouts.get(key);
+  if (existingTimeoutId !== undefined) {
+    window.clearTimeout(existingTimeoutId);
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    pendingRoomLeaveTimeouts.delete(key);
+    leave();
+  }, 300);
+
+  pendingRoomLeaveTimeouts.set(key, timeoutId);
 }
 
 function formatTime(seconds: number) {

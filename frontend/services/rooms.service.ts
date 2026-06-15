@@ -2,7 +2,7 @@ import type { MyRooms, Room, RoomMember } from '@music-room/shared';
 import { apiClient } from '@/lib/api-client';
 
 export const roomsService = {
-  create(payload: { name: string; isPrivate?: boolean; allowMemberAddSong?: boolean }) {
+  create(payload: { name: string; code?: string; isPrivate?: boolean; allowMemberAddSong?: boolean }) {
     return apiClient<Room>('/rooms', {
       body: payload,
       method: 'POST'
@@ -56,6 +56,20 @@ export const roomsService = {
 
   assignOwner(code: string, userId: number) {
     return apiClient<Room>(`/rooms/${code}/owner/assign`, {
+      body: { userId },
+      method: 'POST'
+    });
+  },
+
+  demoteOwner(code: string, userId: number) {
+    return apiClient<Room>(`/rooms/${code}/owner/demote`, {
+      body: { userId },
+      method: 'POST'
+    });
+  },
+
+  kickMember(code: string, userId: number) {
+    return apiClient<Room>(`/rooms/${code}/members/kick`, {
       body: { userId },
       method: 'POST'
     });

@@ -1,5 +1,6 @@
 'use client';
 
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { RoomPlayerState } from '@music-room/shared';
 
@@ -81,6 +82,8 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const onEndedRef = useRef(onEnded);
     const onProgressRef = useRef(onProgress);
     const playerRef = useRef<YouTubePlayer | null>(null);
+    const fullscreenContainerRef = useRef<HTMLDivElement | null>(null);
+    const fullscreenButtonHideTimeoutRef = useRef<number | null>(null);
     const playerContainerRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<RoomPlayerState | null>(state);
     const isOwnerRef = useRef(isOwner);
@@ -92,6 +95,8 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const [embedFallbackState, setEmbedFallbackState] = useState<RoomPlayerState | null>(null);
     const [autoMuted, setAutoMuted] = useState(false);
     const [needsUserStart, setNeedsUserStart] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [showFullscreenButton, setShowFullscreenButton] = useState(false);
     const [playerVersion, setPlayerVersion] = useState(0);
     const elementId = `${elementBaseId.current}-${playerVersion}`;
 
@@ -230,6 +235,40 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       player.unMute();
       setAutoMuted(false);
       reportProgress();
+    }
+
+    function toggleFullscreen() {
+      if (document.fullscreenElement === fullscreenContainerRef.current) {
+        void document.exitFullscreen?.();
+        return;
+      }
+
+      void fullscreenContainerRef.current?.requestFullscreen?.();
+    }
+
+    function hideFullscreenButtonLater() {
+      if (fullscreenButtonHideTimeoutRef.current !== null) {
+        window.clearTimeout(fullscreenButtonHideTimeoutRef.current);
+      }
+
+      fullscreenButtonHideTimeoutRef.current = window.setTimeout(() => {
+        setShowFullscreenButton(false);
+        fullscreenButtonHideTimeoutRef.current = null;
+      }, isFullscreen ? 1200 : 1800);
+    }
+
+    function showFullscreenControl() {
+      setShowFullscreenButton(true);
+      hideFullscreenButtonLater();
+    }
+
+    function hideFullscreenControl() {
+      if (fullscreenButtonHideTimeoutRef.current !== null) {
+        window.clearTimeout(fullscreenButtonHideTimeoutRef.current);
+        fullscreenButtonHideTimeoutRef.current = null;
+      }
+
+      setShowFullscreenButton(false);
     }
 
     function recreatePlayer() {
@@ -411,9 +450,12 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           width: '100%',
           playerVars: {
             autoplay: 0,
-            controls: 1,
+            cc_load_policy: 0,
+            controls: 0,
             disablekb: isOwner ? 0 : 1,
             enablejsapi: 1,
+            fs: 1,
+            iv_load_policy: 3,
             modestbranding: 1,
             origin: window.location.origin,
             playsinline: 1,
@@ -526,8 +568,32 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
       return () => window.clearTimeout(timeoutId);
     }, [embedFallback, ready, state?.currentVideoId]);
 
+    useEffect(() => {
+      function handleFullscreenChange() {
+        setIsFullscreen(document.fullscreenElement === fullscreenContainerRef.current);
+        setShowFullscreenButton(false);
+      }
+
+      document.addEventListener('fullscreenchange', handleFullscreenChange);
+      return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    useEffect(() => {
+      return () => {
+        if (fullscreenButtonHideTimeoutRef.current !== null) {
+          window.clearTimeout(fullscreenButtonHideTimeoutRef.current);
+        }
+      };
+    }, []);
+
     return (
-      <div className="relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black">
+      <div
+        ref={fullscreenContainerRef}
+        className="relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black"
+        onMouseEnter={showFullscreenControl}
+        onMouseLeave={hideFullscreenControl}
+        onMouseMove={showFullscreenControl}
+      >
         {embedFallback && (embedFallbackState ?? state)?.currentVideoId ? (
           <iframe
             key={(embedFallbackState ?? state)!.currentVideoId!}
@@ -560,6 +626,16 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
             {isOwner ? 'Click to start playback' : 'Click to start listening'}
           </button>
         ) : null}
+        <button
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          className={`absolute bottom-3 right-3 grid size-9 place-items-center rounded-md border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 motion-reduce:transition-none ${
+            showFullscreenButton ? 'opacity-100' : 'opacity-0'
+          }`}
+          onClick={toggleFullscreen}
+          type="button"
+        >
+          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+        </button>
       </div>
     );
   }
@@ -568,8 +644,11 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
 function createEmbedFallbackUrl(state: RoomPlayerState) {
   const params = new URLSearchParams({
     autoplay: state.status === 'playing' ? '1' : '0',
-    controls: '1',
+    cc_load_policy: '0',
+    controls: '0',
     enablejsapi: '1',
+    fs: '1',
+    iv_load_policy: '3',
     modestbranding: '1',
     origin: window.location.origin,
     playsinline: '1',

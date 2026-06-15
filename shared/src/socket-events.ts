@@ -3,6 +3,7 @@ import type { RoomQueueItem } from './queue';
 import type { Room, RoomMember } from './room';
 
 export type ServerToClientEvents = {
+  'room:kicked': (payload: { roomCode: string }) => void;
   'room:member:update': (members: RoomMember[]) => void;
   'room:owner:changed': (payload: { roomCode: string; ownerId: number }) => void;
   'room:state': (room: Room) => void;
@@ -18,7 +19,10 @@ export type PlayerQueuePayload = { state: RoomPlayerState; queue: RoomQueueItem[
 
 export type ClientToServerEvents = {
   'room:join': (payload: { roomCode: string }, callback?: (room: Room) => void) => void;
-  'room:leave': (payload: { roomCode: string }) => void;
+  'room:leave': (payload: { roomCode: string }, callback?: (payload: { ok: true }) => void) => void;
+  'room:member:demote-owner': (payload: { roomCode: string; userId: number }, callback?: (room: Room) => void) => void;
+  'room:member:kick': (payload: { roomCode: string; userId: number }, callback?: (room: Room) => void) => void;
+  'room:member:promote-owner': (payload: { roomCode: string; userId: number }, callback?: (room: Room) => void) => void;
   'room:queue:add': (payload: { roomCode: string; videoId: string }, callback?: (queue: RoomQueueItem[]) => void) => void;
   'room:queue:remove': (payload: { roomCode: string; queueItemId: number }, callback?: (queue: RoomQueueItem[]) => void) => void;
   'room:queue:reorder': (payload: { roomCode: string; queueItemIds: number[] }, callback?: (queue: RoomQueueItem[]) => void) => void;

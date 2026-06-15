@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../common/auth/authenticated-request';
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard';
 import { AssignOwnerDto } from './dto/assign-owner.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
+import { KickMemberDto } from './dto/kick-member.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { RoomsService } from './rooms.service';
 
@@ -55,5 +56,15 @@ export class RoomsController {
   @Post(':code/owner/assign')
   assignOwner(@Param('code') code: string, @Body() dto: AssignOwnerDto, @CurrentUser() user: AuthenticatedUser) {
     return this.roomsService.assignOwner(code, dto.userId, user.id);
+  }
+
+  @Post(':code/owner/demote')
+  demoteOwner(@Param('code') code: string, @Body() dto: AssignOwnerDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.roomsService.demoteOwner(code, dto.userId, user.id);
+  }
+
+  @Post(':code/members/kick')
+  kickMember(@Param('code') code: string, @Body() dto: KickMemberDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.roomsService.kickMember(code, dto.userId, user.id);
   }
 }

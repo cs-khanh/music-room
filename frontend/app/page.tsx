@@ -22,6 +22,7 @@ import {
   Search,
   Shuffle,
   SkipForward,
+  Trash2,
   User,
   Volume2,
   VolumeX,
@@ -275,11 +276,13 @@ export default function HomePage() {
     }
   }
 
-  async function createRoom() {
+  async function createRoom(customCode?: string) {
+    const normalizedCode = customCode?.trim().toUpperCase();
     setError(null);
     try {
       const room = await roomsService.create({
         allowMemberAddSong: true,
+        code: normalizedCode || undefined,
         name: 'Music Room'
       });
       router.push(`/room/${room.code}`);
@@ -402,6 +405,10 @@ export default function HomePage() {
   function playQueuedTrack(video: YouTubeVideo, queueIndex: number) {
     setQueue((current) => current.filter((_, index) => index !== queueIndex));
     startVideo(video);
+  }
+
+  function removeQueuedTrack(queueIndex: number) {
+    setQueue((current) => current.filter((_, index) => index !== queueIndex));
   }
 
   function shuffleQueue() {
@@ -528,6 +535,13 @@ export default function HomePage() {
             <button className="h-14 w-full rounded-md border border-accent/30 px-4 text-base font-semibold text-accent transition hover:bg-accent hover:text-black sm:h-12 sm:w-24 sm:text-sm">
               {language === 'vi' ? 'Vào' : 'Join'}
             </button>
+            <button
+              type="button"
+              onClick={() => void createRoom(roomCode)}
+              className="h-14 w-full rounded-md bg-accent px-4 text-base font-semibold text-black transition hover:bg-[#55d8bb] sm:h-12 sm:w-28 sm:text-sm"
+            >
+              {language === 'vi' ? 'Tạo' : 'Create'}
+            </button>
           </form>
         </section>
 
@@ -642,7 +656,7 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <aside className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-black/25 p-3 sm:p-4">
+                <aside className="order-first w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-black/25 p-3 sm:p-4 2xl:order-none">
                   {playerState ? (
                     <YouTubeRoomPlayer
                       ref={playerRef}
@@ -777,19 +791,36 @@ export default function HomePage() {
                 <div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-muted">{t.emptyQueue}</div>
               ) : (
                 queue.map((track, index) => (
-                  <button
+                  <div
                     key={`${track.videoId}-${index}`}
-                    onClick={() => playQueuedTrack(track, index)}
-                    className="grid w-full min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-accent/40"
+                    className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center gap-2 rounded-lg border border-white/10 bg-black/20 p-2 transition hover:border-accent/40"
                   >
-                    <div className="grid size-8 place-items-center rounded-md bg-white/[0.06] text-sm text-muted">
-                      {index === 0 ? <Play size={15} fill="currentColor" /> : index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{track.title}</p>
-                      <p className="mt-1 truncate text-xs text-muted">{track.channelTitle}</p>
-                    </div>
-                  </button>
+                    <button onClick={() => playQueuedTrack(track, index)} className="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-3 text-left">
+                      {track.thumbnailUrl ? (
+                        <span className="relative block aspect-video w-full overflow-hidden rounded-md">
+                          <img src={track.thumbnailUrl} alt="" className="size-full object-cover" />
+                          <span className="absolute bottom-1 right-1 grid size-5 place-items-center rounded bg-black/70 text-white">
+                            <Play size={11} fill="currentColor" />
+                          </span>
+                        </span>
+                      ) : (
+                        <div className="grid aspect-video w-full place-items-center rounded-md bg-white/[0.06] text-sm text-muted">
+                          {index === 0 ? <Play size={15} fill="currentColor" /> : index + 1}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{track.title}</p>
+                        <p className="mt-1 truncate text-xs text-muted">{track.channelTitle}</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => removeQueuedTrack(index)}
+                      className="grid size-8 place-items-center rounded-md border border-white/10 text-muted transition hover:border-danger/40 hover:text-danger"
+                      aria-label="Remove from queue"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
