@@ -296,6 +296,25 @@ export default function HomePage() {
     }
   }
 
+  async function deleteOwnedRoom(code: string) {
+    if (!window.confirm(`Delete room ${code}? This cannot be undone.`)) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await roomsService.delete(code);
+      await refreshMyRooms();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        router.push('/login');
+        return;
+      }
+
+      setError(err instanceof Error ? err.message : 'Could not delete room.');
+    }
+  }
+
   async function joinRoom(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedCode = roomCode.trim().toUpperCase();
@@ -549,7 +568,15 @@ export default function HomePage() {
 
         {myRoomsOpen ? (
           <section className="grid w-full min-w-0 max-w-full gap-4 rounded-lg border border-white/10 bg-panel/80 p-4 backdrop-blur xl:grid-cols-2">
-            <RoomList title={t.roomsOwned} emptyText={t.noOwnedRooms} rooms={myRooms.owned} icon="owner" enterText={t.enterRoom} />
+            <RoomList
+              title={t.roomsOwned}
+              emptyText={t.noOwnedRooms}
+              rooms={myRooms.owned}
+              icon="owner"
+              enterText={t.enterRoom}
+              currentUserId={me?.id}
+              onDelete={(code) => void deleteOwnedRoom(code)}
+            />
             <RoomList title={t.roomsJoined} emptyText={t.noJoinedRooms} rooms={myRooms.recentJoined} icon="history" enterText={t.enterRoom} />
           </section>
         ) : null}
@@ -844,15 +871,19 @@ export default function HomePage() {
 }
 
 function RoomList({
+  currentUserId,
   emptyText,
   enterText,
   icon,
+  onDelete,
   rooms,
   title
 }: {
+  currentUserId?: number;
   emptyText: string;
   enterText: string;
   icon: 'history' | 'owner';
+  onDelete?: (code: string) => void;
   rooms: RoomListItem[];
   title: string;
 }) {
@@ -869,7 +900,9 @@ function RoomList({
         {rooms.length === 0 ? (
           <div className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">{emptyText}</div>
         ) : (
-          rooms.map((room) => (
+          rooms.map((room) => {
+            const canDelete = Boolean(onDelete && currentUserId && room.ownerId === currentUserId);
+            return (
             <Link
               key={room.code}
               href={`/room/${room.code}`}
@@ -884,9 +917,37 @@ function RoomList({
                   {room.currentTitle ?? room.playerStatus} · {room.onlineMemberCount}/{room.memberCount} online · {formatShortDate(room.lastSeenAt ?? room.updatedAt)}
                 </span>
               </span>
-              <span className="inline-flex h-8 w-full items-center justify-center rounded-md bg-accent px-2 text-xs font-semibold text-black sm:w-auto">{enterText}</span>
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-8 w-full items-center justify-center rounded-md bg-accent px-2 text-xs font-semibold text-black sm:w-auto">{enterText}</span>
+                {canDelete ? (
+                  <span
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onDelete?.(room.code);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onDelete?.(room.code);
+                    }}
+                    className="grid size-8 place-items-center rounded-md border border-white/10 text-muted transition hover:border-danger/40 hover:text-danger"
+                    aria-label={`Delete room ${room.code}`}
+                    role="button"
+                    tabIndex={0}
+                    title="Delete room"
+                  >
+                    <Trash2 size={15} />
+                  </span>
+                ) : null}
+              </span>
             </Link>
-          ))
+            );
+          })
         )}
       </div>
     </div>

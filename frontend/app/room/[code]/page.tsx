@@ -66,6 +66,7 @@ export default function RoomPage() {
   const [draggingQueueItemId, setDraggingQueueItemId] = useState<number | null>(null);
   const [playingQueueItemId, setPlayingQueueItemId] = useState<number | null>(null);
   const [memberAction, setMemberAction] = useState<{ type: 'demote' | 'kick' | 'promote'; userId: number } | null>(null);
+  const [deletingRoom, setDeletingRoom] = useState(false);
 
   const isOwner = useMemo(() => Boolean(me && members.some((member) => member.userId === me.id && member.role === 'owner')), [me, members]);
   const isRootOwner = useMemo(() => Boolean(me && room?.ownerId === me.id), [me, room]);
@@ -145,6 +146,14 @@ export default function RoomPage() {
     socket.on('room:player:seek', applyPlayerState);
     socket.on('room:player:force-sync', applyPlayerState);
     socket.on('room:player:next', handleNext);
+    socket.on('room:deleted', (payload) => {
+      if (payload.roomCode !== roomCode) {
+        return;
+      }
+
+      skipUnmountLeaveRef.current = true;
+      router.replace('/');
+    });
     socket.on('room:kicked', (payload) => {
       if (payload.roomCode !== roomCode) {
         return;
@@ -211,6 +220,7 @@ export default function RoomPage() {
       socket.off('room:player:seek', applyPlayerState);
       socket.off('room:player:force-sync', applyPlayerState);
       socket.off('room:player:next', handleNext);
+      socket.off('room:deleted');
       socket.off('room:kicked');
       socket.off('room:owner:changed');
       socket.off('error');
@@ -656,6 +666,33 @@ export default function RoomPage() {
     router.push('/');
   }
 
+  async function deleteRoom() {
+    if (!window.confirm('Delete this room? This cannot be undone.')) {
+      return;
+    }
+
+    skipUnmountLeaveRef.current = true;
+    setDeletingRoom(true);
+    setError(null);
+    try {
+      const socket = getSocket();
+      if (socket.connected) {
+        await emitSocketWithAck<{ ok: true }>((resolve) => {
+          socket.emit('room:delete', { roomCode }, resolve);
+        });
+      } else {
+        await roomsService.delete(roomCode);
+      }
+
+      router.push('/');
+    } catch (err) {
+      skipUnmountLeaveRef.current = false;
+      setError(err instanceof Error ? err.message : 'Could not delete room.');
+    } finally {
+      setDeletingRoom(false);
+    }
+  }
+
   async function copyInvite() {
     function resetCopyStatusLater() {
       if (copyResetTimeoutRef.current !== null) {
@@ -706,6 +743,16 @@ export default function RoomPage() {
             {onlineMembers.length} online
           </div>
           <div className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-sm text-muted sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">{isOwner ? 'You are owner' : 'Member listening mode'}</div>
+          {isRootOwner ? (
+            <button
+              onClick={() => void deleteRoom()}
+              disabled={deletingRoom}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-danger/30 px-3 text-sm text-danger disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              <Trash2 size={16} />
+              {deletingRoom ? 'Deleting' : 'Delete room'}
+            </button>
+          ) : null}
           <button onClick={() => void leaveRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-danger/30 px-3 text-sm text-danger sm:w-auto">
             <LogOut size={16} />
             Leave

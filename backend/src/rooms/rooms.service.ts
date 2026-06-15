@@ -105,7 +105,7 @@ export class RoomsService {
   }
 
   async delete(code: string, userId: number) {
-    const room = await this.requireOwner(code, userId);
+    const room = await this.requireRootOwner(code, userId);
     await this.prisma.$transaction([
       this.prisma.room.update({
         data: { currentQueueItemId: null },
