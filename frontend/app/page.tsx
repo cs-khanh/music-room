@@ -482,8 +482,8 @@ export default function HomePage() {
       <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
         <header className="flex w-full min-w-0 max-w-full flex-col gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 backdrop-blur sm:px-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-md bg-accent text-black shadow-lg shadow-accent/20">
-              <Waves size={21} strokeWidth={2.2} />
+            <div className="grid size-10 shrink-0 place-items-center rounded-md bg-accent/10 shadow-lg shadow-accent/20">
+              <img src="/icon.svg" alt="" className="size-8" />
             </div>
             <div className="min-w-0">
               <p className="text-sm text-muted">Music Room</p>
