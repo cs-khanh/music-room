@@ -1,5 +1,7 @@
 # Run Music Room Locally
 
+> These instructions run the original NestJS + MySQL stack locally. For local Cloudflare Worker/D1 development and Cloudflare deployment, see [CLOUDFLARE.md](CLOUDFLARE.md).
+
 ## Prerequisites
 
 - Node.js 20+

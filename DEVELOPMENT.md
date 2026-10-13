@@ -1,5 +1,7 @@
 # Music Room Development
 
+> This file describes the original NestJS/MySQL development setup. For the active Cloudflare Workers + D1 setup and deployment commands, use [CLOUDFLARE.md](CLOUDFLARE.md). The Cloudflare backend source is `backend/worker.js`; the NestJS backend remains available for local fallback.
+
 ## Structure
 
 ```txt

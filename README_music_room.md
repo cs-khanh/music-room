@@ -1,5 +1,7 @@
 # Music Room
 
+> **Cloudflare deployment is now implemented.** For the current Workers, D1, Durable Objects, secrets, data migration, and deploy workflow, see [CLOUDFLARE.md](CLOUDFLARE.md). This document records product requirements and the original design; its proposed NestJS/MySQL stack below is not the active Cloudflare production architecture.
+
 Music Room is a web application for listening to music from YouTube in two modes:
 
 - **Personal Listening**: users can listen from the home page without logging in.

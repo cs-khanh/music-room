@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "music-room-api",
+  "main": "../worker.js",
+  "compatibility_date": "2026-10-13",
+  "vars": {
+    "FRONTEND_URL": "https://music.khanhcs.id.vn"
+  },
+  "routes": [{ "pattern": "api-music.khanhcs.id.vn", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "music-room-prod-db",
+      "database_id": "7dca3ee3-d907-4ab9-b979-80fdd2e29a66",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "MusicRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MusicRoom"] }],
+  "observability": { "enabled": true }
+}

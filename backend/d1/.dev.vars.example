@@ -1,0 +1,4 @@
+JWT_SECRET=replace-with-a-random-secret-of-at-least-32-bytes
+JWT_REFRESH_SECRET=replace-with-a-different-random-secret-of-at-least-32-bytes
+YOUTUBE_API_KEY=replace-with-a-YouTube-Data-API-v3-key
+FRONTEND_URL=http://localhost:3000

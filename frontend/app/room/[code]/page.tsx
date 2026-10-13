@@ -125,7 +125,7 @@ export default function RoomPage() {
     cancelPendingRoomLeave(roomCode, me.id);
     skipUnmountLeaveRef.current = false;
 
-    const socket = connectSocketForUser(me.id);
+    const socket = connectSocketForUser(me.id, roomCode);
     let joinedSocketId: string | null = null;
     const handleNext = (payload: { state: RoomPlayerState; queue: RoomQueueItem[] }) => {
       setControlAction(null);
