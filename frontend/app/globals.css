@@ -30,6 +30,47 @@ button {
   cursor: pointer;
 }
 
+.youtube-player-dialog[open] {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.youtube-player-dialog.youtube-player-css-fullscreen,
+.youtube-player-dialog:modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+.youtube-player-dialog::backdrop {
+  background: #000;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .youtube-player-fullscreen-control {
+    opacity: 1;
+  }
+}
+
 img {
   display: block;
 }

@@ -82,7 +82,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const onEndedRef = useRef(onEnded);
     const onProgressRef = useRef(onProgress);
     const playerRef = useRef<YouTubePlayer | null>(null);
-    const fullscreenContainerRef = useRef<HTMLDivElement | null>(null);
+    const fullscreenContainerRef = useRef<HTMLDialogElement | null>(null);
     const fullscreenButtonHideTimeoutRef = useRef<number | null>(null);
     const playerContainerRef = useRef<HTMLDivElement | null>(null);
     const stateRef = useRef<RoomPlayerState | null>(state);
@@ -96,6 +96,7 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     const [autoMuted, setAutoMuted] = useState(false);
     const [needsUserStart, setNeedsUserStart] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [cssFullscreen, setCssFullscreen] = useState(false);
     const [showFullscreenButton, setShowFullscreenButton] = useState(false);
     const [playerVersion, setPlayerVersion] = useState(0);
     const elementId = `${elementBaseId.current}-${playerVersion}`;
@@ -243,7 +244,21 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
         return;
       }
 
-      void fullscreenContainerRef.current?.requestFullscreen?.();
+      const container = fullscreenContainerRef.current;
+      if (window.matchMedia('(hover: none), (pointer: coarse)').matches) {
+        setCssFullscreen(true);
+        return;
+      }
+
+      if (container?.requestFullscreen) {
+        try {
+          void container.requestFullscreen().catch(() => setCssFullscreen(true));
+        } catch {
+          setCssFullscreen(true);
+        }
+      } else {
+        setCssFullscreen(true);
+      }
     }
 
     function hideFullscreenButtonLater() {
@@ -579,6 +594,33 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     }, []);
 
     useEffect(() => {
+      const dialog = fullscreenContainerRef.current;
+      if (!dialog) return;
+      const previousBodyOverflow = document.body.style.overflow;
+      if (cssFullscreen) {
+        document.body.style.overflow = 'hidden';
+        if (!dialog.matches(':modal')) {
+          try {
+            dialog.close();
+            dialog.showModal();
+          } catch {
+            try {
+              dialog.show();
+            } catch {
+              // Keep the CSS viewport fallback if modal dialogs are unavailable.
+            }
+          }
+        }
+      } else if (dialog.matches(':modal')) {
+        dialog.close();
+        dialog.show();
+      }
+      return () => {
+        if (cssFullscreen) document.body.style.overflow = previousBodyOverflow;
+      };
+    }, [cssFullscreen]);
+
+    useEffect(() => {
       return () => {
         if (fullscreenButtonHideTimeoutRef.current !== null) {
           window.clearTimeout(fullscreenButtonHideTimeoutRef.current);
@@ -587,9 +629,17 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
     }, []);
 
     return (
-      <div
+      <dialog
         ref={fullscreenContainerRef}
-        className="relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black"
+        open
+        aria-label="YouTube player"
+        className={`youtube-player-dialog relative aspect-video w-full max-w-full overflow-hidden rounded-lg bg-black ${
+          cssFullscreen ? 'youtube-player-css-fullscreen' : ''
+        }`}
+        onCancel={(event) => {
+          event.preventDefault();
+          setCssFullscreen(false);
+        }}
         onMouseEnter={showFullscreenControl}
         onMouseLeave={hideFullscreenControl}
         onMouseMove={showFullscreenControl}
@@ -627,16 +677,16 @@ export const YouTubeRoomPlayer = forwardRef<YouTubeRoomPlayerHandle, YouTubeRoom
           </button>
         ) : null}
         <button
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          className={`absolute bottom-3 right-3 grid size-9 place-items-center rounded-md border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 motion-reduce:transition-none ${
+          aria-label={isFullscreen || cssFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          className={`youtube-player-fullscreen-control absolute bottom-3 right-3 grid size-9 place-items-center rounded-md border border-white/15 bg-black/60 text-white shadow-lg transition hover:bg-black/80 focus-visible:opacity-100 motion-reduce:transition-none ${
             showFullscreenButton ? 'opacity-100' : 'opacity-0'
           }`}
-          onClick={toggleFullscreen}
+          onClick={() => (cssFullscreen ? setCssFullscreen(false) : toggleFullscreen())}
           type="button"
         >
-          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          {isFullscreen || cssFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>
-      </div>
+      </dialog>
     );
   }
 );
