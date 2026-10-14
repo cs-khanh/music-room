@@ -10,6 +10,11 @@ export class YoutubeController {
     return this.youtubeService.search(query);
   }
 
+  @Get('trending')
+  trending(@Query('region') region: string) {
+    return this.youtubeService.trending(region);
+  }
+
   @Get('videos/:videoId')
   getVideo(@Param('videoId') videoId: string) {
     return this.youtubeService.getVideo(videoId);

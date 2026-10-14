@@ -8,6 +8,12 @@ export const youtubeService = {
     });
   },
 
+  trending(region: 'VN' | 'US' | 'GB') {
+    return apiClient<YouTubeSearchResponse>('/youtube/trending', {
+      params: { region }
+    });
+  },
+
   getVideo(videoId: string) {
     return apiClient<YouTubeVideo>(`/youtube/videos/${videoId}`);
   }

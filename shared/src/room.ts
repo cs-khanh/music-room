@@ -45,6 +45,20 @@ export type RoomListItem = {
   lastSeenAt: string | null;
 };
 
+export type PublicRoom = Pick<
+  RoomListItem,
+  | 'id'
+  | 'code'
+  | 'name'
+  | 'playerStatus'
+  | 'currentVideoId'
+  | 'currentTitle'
+  | 'memberCount'
+  | 'onlineMemberCount'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
 export type MyRooms = {
   owned: RoomListItem[];
   recentJoined: RoomListItem[];

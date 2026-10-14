@@ -7,8 +7,6 @@ import {
   Clock3,
   Crown,
   DoorOpen,
-  Flame,
-  Globe2,
   Headphones,
   History,
   ListMusic,
@@ -18,7 +16,6 @@ import {
   Pause,
   Play,
   Plus,
-  Radio,
   Search,
   Shuffle,
   SkipForward,
@@ -28,9 +25,9 @@ import {
   VolumeX,
   Waves
 } from 'lucide-react';
-import type { MyRooms, RoomListItem, RoomPlayerState, YouTubeVideo } from '@music-room/shared';
+import type { MyRooms, PublicRoom, RoomListItem, RoomPlayerState, YouTubeVideo } from '@music-room/shared';
 import { YouTubeRoomPlayer, type YouTubeRoomPlayerHandle } from '@/components/player/youtube-room-player';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, apiClient } from '@/lib/api-client';
 import { authService, type AuthUser } from '@/services/auth.service';
 import { personalService } from '@/services/personal.service';
 import { roomsService } from '@/services/rooms.service';
@@ -41,12 +38,9 @@ type Language = 'vi' | 'en';
 const copy = {
   en: {
     add: 'Add',
-    backendProxy: 'YouTube live search',
     createRoom: 'Create room',
-    discovery: 'Quick discovery',
     emptyQueue: 'Pick a hot topic or search a song to add it to the queue.',
     enterRoom: 'Enter',
-    heroTitle: 'Hot music in Vietnam, US and UK.',
     language: 'Language',
     listenMode: 'Personal',
     localQueue: 'Queue stays local',
@@ -58,6 +52,10 @@ const copy = {
     noOwnedRooms: 'Rooms you own will show here.',
     nowPlayingFallback: 'Choose a song to start',
     nowPlayingLabel: 'Now playing',
+    topTracks: 'Top 30 music videos on YouTube',
+    updatedAt: 'Updated',
+    trendingLoading: 'Loading current YouTube charts…',
+    trendingUnavailable: 'The chart is unavailable right now.',
     personalQueue: 'Personal queue',
     quickSuggestions: 'Quick listening ideas',
     quickSuggestionsSubtitle: 'By region and mood',
@@ -73,12 +71,9 @@ const copy = {
   },
   vi: {
     add: 'Thêm',
-    backendProxy: 'Tìm qua YouTube',
     createRoom: 'Tạo phòng',
-    discovery: 'Khám phá nhanh',
     emptyQueue: 'Chọn chủ đề hot hoặc tìm bài để thêm vào queue.',
     enterRoom: 'Vào',
-    heroTitle: 'Nhạc đang hot ở Việt Nam, US và UK.',
     language: 'Ngôn ngữ',
     listenMode: 'Cá nhân',
     localQueue: 'Queue đang lưu local',
@@ -90,6 +85,10 @@ const copy = {
     noOwnedRooms: 'Phòng bạn làm chủ sẽ hiện ở đây.',
     nowPlayingFallback: 'Chọn bài hát để bắt đầu',
     nowPlayingLabel: 'Đang phát',
+    topTracks: 'Top 30 nhạc thịnh hành trên YouTube',
+    updatedAt: 'Cập nhật lúc',
+    trendingLoading: 'Đang tải bảng xếp hạng YouTube…',
+    trendingUnavailable: 'Hiện chưa tải được bảng xếp hạng.',
     personalQueue: 'Hàng chờ cá nhân',
     quickSuggestions: 'Gợi ý nghe nhanh',
     quickSuggestionsSubtitle: 'Theo khu vực và mood',
@@ -105,66 +104,15 @@ const copy = {
   }
 } satisfies Record<Language, Record<string, string>>;
 
-const musicTopics = [
-  {
-    accent: 'from-red-400 to-amber-300',
-    description: 'V-Pop, rap Việt, ballad và playlist đang được nghe nhiều.',
-    label: 'Hot Việt Nam',
-    query: 'nhạc Việt Nam hot trending mới nhất',
-    region: 'VN'
-  },
-  {
-    accent: 'from-cyan-300 to-blue-500',
-    description: 'Pop, R&B, hip-hop va radio hits tu US charts.',
-    label: 'US Hits',
-    query: 'US hits trending music 2026',
-    region: 'US'
-  },
-  {
-    accent: 'from-fuchsia-400 to-violet-500',
-    description: 'UK pop, indie, dance va club tracks noi bat.',
-    label: 'UK Hits',
-    query: 'UK hits trending music 2026',
-    region: 'UK'
-  }
+const chartRegions = [
+  { code: 'VN' as const, region: 'VN' }
 ];
 
 const quickMoods = [
   { label: 'V-Pop mới', query: 'V-Pop mới nhất' },
   { label: 'Rap Việt hot', query: 'rap Việt hot trending' },
   { label: 'US pop', query: 'US pop hits playlist' },
-  { label: 'UK dance', query: 'UK dance hits playlist' },
-  { label: 'Acoustic Việt', query: 'nhạc acoustic Việt Nam hay' }
-];
-
-const starterTracks = [
-  {
-    channel: 'YouTube Music',
-    cover: 'from-red-500 via-amber-300 to-yellow-200',
-    duration: 'Live search',
-    mood: 'VN',
-    query: 'nhạc Việt Nam hot trending mới nhất',
-    title: 'Nhạc Việt đang hot',
-    videoId: 'topic-vn'
-  },
-  {
-    channel: 'YouTube Music',
-    cover: 'from-sky-400 via-blue-600 to-indigo-900',
-    duration: 'Live search',
-    mood: 'US',
-    query: 'US hits trending music 2026',
-    title: 'US chart hits',
-    videoId: 'topic-us'
-  },
-  {
-    channel: 'YouTube Music',
-    cover: 'from-fuchsia-400 via-violet-600 to-slate-950',
-    duration: 'Live search',
-    mood: 'UK',
-    query: 'UK hits trending music 2026',
-    title: 'UK top tracks',
-    videoId: 'topic-uk'
-  }
+  { label: 'UK dance', query: 'UK dance hits playlist' }
 ];
 
 const fallbackRecentTopics = [
@@ -177,12 +125,24 @@ export default function HomePage() {
   const router = useRouter();
   const playerRef = useRef<YouTubeRoomPlayerHandle | null>(null);
   const searchRequestIdRef = useRef(0);
+  const trendingLoadedRef = useRef(false);
   const [me, setMe] = useState<AuthUser | null>(null);
+  const [listenerCount, setListenerCount] = useState(0);
   const [language, setLanguage] = useState<Language>('vi');
   const [myRoomsOpen, setMyRoomsOpen] = useState(false);
   const [myRooms, setMyRooms] = useState<MyRooms>({ owned: [], recentJoined: [] });
+  const [discoverableRooms, setDiscoverableRooms] = useState<PublicRoom[]>([]);
+  const [trendingTracks, setTrendingTracks] = useState<Record<string, YouTubeVideo[]>>({});
+  const [trendingUpdatedAt, setTrendingUpdatedAt] = useState<string | null>(null);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+  const [trendingError, setTrendingError] = useState(false);
   const [query, setQuery] = useState('');
   const [roomCode, setRoomCode] = useState('');
+  const [createRoomOpen, setCreateRoomOpen] = useState(false);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomCode, setNewRoomCode] = useState('');
+  const [newRoomIsPrivate, setNewRoomIsPrivate] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
   const [results, setResults] = useState<YouTubeVideo[]>([]);
   const [queue, setQueue] = useState<YouTubeVideo[]>([]);
   const [recentTracks, setRecentTracks] = useState<YouTubeVideo[]>([]);
@@ -211,6 +171,67 @@ export default function HomePage() {
         return refreshMyRooms();
       })
       .catch(() => setMe(null));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshPublicRooms = async () => {
+      try {
+        const rooms = await roomsService.publicRooms();
+        if (!cancelled) setDiscoverableRooms(rooms.slice(0, 3));
+      } catch {
+        // Keep the home page usable if the public room directory is unavailable.
+      }
+    };
+    void refreshPublicRooms();
+    const intervalId = window.setInterval(() => void refreshPublicRooms(), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshTrending = async () => {
+      try {
+        const charts = await Promise.all(chartRegions.map(async (region) => [region.region, await youtubeService.trending(region.code)] as const));
+        if (!cancelled) {
+          trendingLoadedRef.current = true;
+          setTrendingTracks(Object.fromEntries(charts.map(([region, chart]) => [region, chart.items])));
+          setTrendingUpdatedAt(charts[0]?.[1].updatedAt ?? null);
+          setTrendingError(false);
+        }
+      } catch {
+        if (!cancelled && !trendingLoadedRef.current) setTrendingError(true);
+      } finally {
+        if (!cancelled) setTrendingLoading(false);
+      }
+    };
+    void refreshTrending();
+    const intervalId = window.setInterval(() => void refreshTrending(), 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshListenerCount = async () => {
+      try {
+        const stats = await apiClient<{ listeners: number }>('/stats/listeners');
+        if (!cancelled) setListenerCount(stats.listeners);
+      } catch {
+        // Keep the home page usable if listener stats are temporarily unavailable.
+      }
+    };
+    void refreshListenerCount();
+    const intervalId = window.setInterval(() => void refreshListenerCount(), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -276,14 +297,21 @@ export default function HomePage() {
     }
   }
 
-  async function createRoom(customCode?: string) {
-    const normalizedCode = customCode?.trim().toUpperCase();
+  async function createRoom() {
+    const normalizedCode = newRoomCode.trim().toUpperCase();
+    const normalizedName = newRoomName.trim();
+    if (!normalizedName) {
+      setError(language === 'vi' ? 'Hãy nhập tên phòng.' : 'Enter a room name.');
+      return;
+    }
     setError(null);
+    setCreatingRoom(true);
     try {
       const room = await roomsService.create({
         allowMemberAddSong: true,
         code: normalizedCode || undefined,
-        name: 'Music Room'
+        isPrivate: newRoomIsPrivate,
+        name: normalizedName
       });
       router.push(`/room/${room.code}`);
     } catch (err) {
@@ -293,7 +321,21 @@ export default function HomePage() {
       }
 
       setError(err instanceof Error ? err.message : 'Could not create room.');
+    } finally {
+      setCreatingRoom(false);
     }
+  }
+
+  function openCreateRoom(customCode = '') {
+    setNewRoomCode(customCode);
+    setNewRoomName('');
+    setNewRoomIsPrivate(false);
+    setCreateRoomOpen(true);
+  }
+
+  async function submitCreateRoom(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createRoom();
   }
 
   async function deleteOwnedRoom(code: string) {
@@ -481,13 +523,18 @@ export default function HomePage() {
     <main className="min-h-[100dvh] overflow-x-hidden px-3 py-3 text-foreground sm:px-4 md:px-6 lg:px-8">
       <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
         <header className="flex w-full min-w-0 max-w-full flex-col gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-3 backdrop-blur sm:px-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <div className="grid size-10 shrink-0 place-items-center rounded-md bg-accent/10 shadow-lg shadow-accent/20">
               <img src="/icon.svg" alt="" className="size-8" />
             </div>
             <div className="min-w-0">
               <p className="text-sm text-muted">Music Room</p>
-              <h1 className="text-lg font-semibold leading-tight sm:text-xl">Hot VN, US & UK music rooms</h1>
+              <h1 className="text-lg font-semibold leading-tight sm:text-xl">{language === 'vi' ? 'Cùng nghe, cùng chill' : 'Listen together, vibe together'}</h1>
+            </div>
+            <div className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-accent/25 bg-accent/10 px-3 text-xs" aria-label={`${listenerCount.toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US')} ${language === 'vi' ? 'đang nghe' : 'listening'}`}>
+              <span className="size-2 rounded-full bg-accent shadow-[0_0_8px_rgba(52,211,153,0.65)] motion-safe:animate-pulse" />
+              <span className="font-semibold tabular-nums text-white">{listenerCount.toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US')}</span>
+              <span className="text-white">{language === 'vi' ? 'đang nghe' : 'listening'}</span>
             </div>
           </div>
 
@@ -511,7 +558,7 @@ export default function HomePage() {
                   <DoorOpen size={17} />
                   {t.myRooms}
                 </button>
-                <button onClick={() => void createRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
+                <button onClick={() => openCreateRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
                   <Plus size={17} />
                   {t.createRoom}
                 </button>
@@ -530,7 +577,7 @@ export default function HomePage() {
               </Link>
             )}
             {!me ? (
-              <button onClick={() => void createRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
+              <button onClick={() => openCreateRoom()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black transition hover:bg-[#55d8bb] sm:w-auto">
                 <Plus size={17} />
                 {t.createRoom}
               </button>
@@ -538,9 +585,62 @@ export default function HomePage() {
           </nav>
         </header>
 
-        <section className="grid w-full min-w-0 max-w-full gap-3 rounded-lg border border-accent/25 bg-accent/10 p-3 xl:grid-cols-2">
+        {createRoomOpen ? (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreateRoomOpen(false); }}>
+            <form onSubmit={submitCreateRoom} className="w-full max-w-md rounded-xl border border-white/10 bg-[#151922] p-5 shadow-2xl">
+              <h2 className="text-lg font-semibold">{language === 'vi' ? 'Tạo phòng mới' : 'Create a room'}</h2>
+              <label className="mt-4 block text-sm text-muted" htmlFor="new-room-name">{language === 'vi' ? 'Tên phòng' : 'Room name'}</label>
+              <input
+                autoFocus
+                id="new-room-name"
+                className="mt-1 h-11 w-full rounded-md border border-white/10 bg-black/25 px-3 text-sm outline-none focus:border-accent/60"
+                maxLength={255}
+                onChange={(event) => setNewRoomName(event.target.value)}
+                placeholder={language === 'vi' ? 'Ví dụ: Nhạc chill buổi tối' : 'For example: Late night chill'}
+                required
+                value={newRoomName}
+              />
+              <label className="mt-4 block text-sm text-muted" htmlFor="new-room-code">{language === 'vi' ? 'Mã phòng (không bắt buộc)' : 'Room code (optional)'}</label>
+              <input
+                id="new-room-code"
+                className="mt-1 h-11 w-full rounded-md border border-white/10 bg-black/25 px-3 text-sm uppercase outline-none focus:border-accent/60"
+                maxLength={20}
+                onChange={(event) => setNewRoomCode(event.target.value)}
+                placeholder={language === 'vi' ? 'Tự tạo nếu để trống' : 'Generated if left empty'}
+                value={newRoomCode}
+              />
+              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+                <input checked={newRoomIsPrivate} className="mt-1 accent-accent" onChange={(event) => setNewRoomIsPrivate(event.target.checked)} type="checkbox" />
+                <span>
+                  <span className="block text-sm font-medium">{language === 'vi' ? 'Phòng riêng tư' : 'Private room'}</span>
+                  <span className="mt-0.5 block text-xs text-muted">{language === 'vi' ? 'Không xuất hiện trong danh sách phòng công khai.' : 'Hidden from the public room list.'}</span>
+                </span>
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setCreateRoomOpen(false)} className="h-10 rounded-md border border-white/10 px-4 text-sm text-muted hover:text-foreground">
+                  {language === 'vi' ? 'Hủy' : 'Cancel'}
+                </button>
+                <button disabled={creatingRoom} className="h-10 rounded-md bg-accent px-4 text-sm font-semibold text-black disabled:opacity-60">
+                  {creatingRoom ? (language === 'vi' ? 'Đang tạo...' : 'Creating...') : (language === 'vi' ? 'Tạo phòng' : 'Create room')}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
+        <section className="w-full min-w-0 max-w-full rounded-lg border border-accent/25 bg-accent/10 p-3">
           <RecentRoomsPreview
-            emptyText={me ? (language === 'vi' ? 'Phòng gần đây sẽ hiện ở đây.' : 'Recent rooms will show here.') : language === 'vi' ? 'Đăng nhập để xem phòng gần đây.' : 'Login to see recent rooms.'}
+            emptyText={language === 'vi' ? 'Chưa có phòng công khai.' : 'No public rooms yet.'}
+            rooms={discoverableRooms}
+            title={language === 'vi' ? 'Phòng công khai' : 'Public rooms'}
+          />
+        </section>
+
+        <section className="grid w-full min-w-0 max-w-full gap-3 rounded-lg border border-white/10 bg-panel/80 p-3 xl:grid-cols-2">
+          <RecentRoomsPreview
+            emptyText={me
+              ? (language === 'vi' ? 'Phòng gần đây sẽ hiện ở đây.' : 'Recent rooms will show here.')
+              : (language === 'vi' ? 'Đăng nhập để xem phòng gần đây.' : 'Login to see recent rooms.')}
             rooms={[...myRooms.recentJoined, ...myRooms.owned].slice(0, 3)}
             title={language === 'vi' ? 'Phòng gần đây' : 'Recent rooms'}
           />
@@ -556,7 +656,7 @@ export default function HomePage() {
             </button>
             <button
               type="button"
-              onClick={() => void createRoom(roomCode)}
+              onClick={() => openCreateRoom(roomCode)}
               className="h-14 w-full rounded-md bg-accent px-4 text-base font-semibold text-black transition hover:bg-[#55d8bb] sm:h-12 sm:w-28 sm:text-sm"
             >
               {language === 'vi' ? 'Tạo' : 'Create'}
@@ -607,7 +707,7 @@ export default function HomePage() {
                         <button
                           key={mood.label}
                           onClick={() => void searchTopic(mood)}
-                          className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/80 transition hover:border-accent/40 hover:text-accent"
+                          className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/80 transition duration-200 hover:scale-[1.02] hover:border-accent/40 hover:text-accent motion-reduce:transform-none"
                         >
                           <Music2 size={15} />
                           {mood.label}
@@ -619,68 +719,56 @@ export default function HomePage() {
                       <SearchResultsGrid tracks={results} addText={t.add} onAdd={addToQueue} />
                     ) : null}
 
-                    <div className="mt-6 flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm text-muted">{t.discovery}</p>
-                        <h2 className="mt-1 text-2xl font-semibold leading-tight sm:text-3xl md:text-4xl xl:text-5xl">{t.heroTitle}</h2>
-                      </div>
-                      <div className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1.5 text-sm text-accent sm:w-auto">
-                        <Radio size={16} />
-                        {t.backendProxy}
-                      </div>
-                    </div>
+                  </div>
 
-                    <div className="mt-6 grid w-full min-w-0 max-w-full gap-3 md:grid-cols-3">
-                      {musicTopics.map((topic) => (
-                        <button
-                          key={topic.label}
-                          onClick={() => void searchTopic(topic)}
-                          className={`group min-h-36 rounded-lg border p-4 text-left transition ${
-                            selectedTopic === topic.label
-                              ? 'border-accent/50 bg-accent/10'
-                              : 'border-white/10 bg-white/[0.04] hover:border-white/25 hover:bg-white/[0.07]'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className={`grid size-11 place-items-center rounded-md bg-gradient-to-br ${topic.accent} text-black shadow-lg shadow-black/20`}>
-                              {topic.region === 'VN' ? <Flame size={20} /> : <Globe2 size={20} />}
+                  <section className="mt-6 min-w-0" aria-labelledby="youtube-trending-title">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                      <Music2 size={18} className="text-accent" />
+                      <h2 id="youtube-trending-title" className="text-lg font-semibold">{t.topTracks}</h2>
+                      </div>
+                      {trendingUpdatedAt ? (
+                        <p className="text-xs text-muted">
+                          {t.updatedAt} {new Date(trendingUpdatedAt).toLocaleString(language === 'vi' ? 'vi-VN' : 'en-US', { dateStyle: 'short', timeStyle: 'short' })}
+                        </p>
+                      ) : null}
+                    </div>
+                    {trendingLoading ? (
+                      <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">{t.trendingLoading}</p>
+                    ) : trendingError ? (
+                      <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">{t.trendingUnavailable}</p>
+                    ) : (
+                      <div className="grid min-w-0 gap-3">
+                        {chartRegions.map((region) => (
+                          <div key={region.region} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <h3 className="truncate text-sm font-semibold">{language === 'vi' ? 'Việt Nam' : 'Vietnam'}</h3>
+                              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-muted">{region.region}</span>
                             </div>
-                            <span className="rounded-full border border-white/10 bg-black/25 px-2 py-1 text-xs text-muted">{topic.region}</span>
+                            <div className="max-h-[30rem] space-y-2 overflow-y-auto pr-1">
+                              {(trendingTracks[region.region] ?? []).slice(0, 30).map((track, index) => (
+                                <article key={track.videoId} className="flex min-w-0 items-center gap-2 rounded-md bg-black/20 p-2 transition duration-200 hover:scale-[1.01] hover:bg-white/[0.05] motion-reduce:transform-none">
+                                  <span className="w-5 shrink-0 text-center text-xs font-semibold text-accent">{index + 1}</span>
+                                  <button onClick={() => startVideo(track)} className="flex min-w-0 flex-1 items-center gap-2 text-left" title={track.title}>
+                                    {track.thumbnailUrl ? <img alt="" src={track.thumbnailUrl} className="size-12 shrink-0 rounded object-cover" /> : <span className="size-12 shrink-0 rounded bg-white/10" />}
+                                    <span className="min-w-0">
+                                      <span className="block truncate text-xs font-medium">{track.title}</span>
+                                      <span className="mt-0.5 block truncate text-[10px] text-muted">{track.channelTitle}</span>
+                                    </span>
+                                  </button>
+                                  <button onClick={() => void addToQueue(track)} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-black transition hover:bg-[#55d8bb]" aria-label={`${t.add} ${track.title}`} title={t.add}>
+                                    <Plus size={14} />
+                                    {t.add}
+                                  </button>
+                                </article>
+                              ))}
+                              {(trendingTracks[region.region] ?? []).length === 0 ? <p className="text-xs text-muted">{t.trendingUnavailable}</p> : null}
+                            </div>
                           </div>
-                          <p className="mt-4 text-lg font-semibold">{topic.label}</p>
-                          <p className="mt-2 text-sm leading-5 text-muted">{topic.description}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid w-full min-w-0 max-w-full gap-3 md:grid-cols-3">
-                    {starterTracks.map((track) => (
-                      <article key={track.videoId} className="group w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
-                        <div className="relative aspect-video overflow-hidden bg-black">
-                          <button
-                            onClick={() => void searchTopic({ label: track.title, query: track.query })}
-                            className={`flex h-full w-full min-w-0 flex-col justify-between bg-gradient-to-br ${track.cover} p-4 text-left text-black transition duration-300 group-hover:scale-105`}
-                          >
-                            <span className="inline-flex size-10 items-center justify-center rounded-full bg-black/20 text-sm font-bold text-white backdrop-blur">
-                              {track.mood}
-                            </span>
-                            <span>
-                              <span className="block text-lg font-bold leading-tight">{track.title}</span>
-                              <span className="mt-1 block text-xs font-semibold uppercase tracking-normal text-black/65">Tap to search</span>
-                            </span>
-                          </button>
-                        </div>
-                        <div className="p-3">
-                          <p className="truncate text-sm font-medium">{track.title}</p>
-                          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted">
-                            <span className="truncate">{track.channel}</span>
-                            <span>{track.duration}</span>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 </div>
 
                 <aside className="order-first w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-black/25 p-3 sm:p-4 2xl:order-none">
@@ -771,7 +859,7 @@ export default function HomePage() {
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {recentTracks.length > 0 ? recentTracks.slice(0, 3).map((track) => (
-                    <button key={track.videoId} onClick={() => startVideo(track)} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
+                    <button key={track.videoId} onClick={() => startVideo(track)} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition duration-200 hover:scale-[1.02] hover:border-white/25 motion-reduce:transform-none">
                       {track.thumbnailUrl ? <img src={track.thumbnailUrl} alt="" className="mr-3 size-11 shrink-0 rounded-md object-cover" /> : <span className="mr-3 size-11 shrink-0 rounded-md bg-white/10" />}
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{track.title}</span>
@@ -779,7 +867,7 @@ export default function HomePage() {
                       </span>
                     </button>
                   )) : fallbackRecentTopics.map((track) => (
-                    <button key={track.title} onClick={() => void searchTopic({ label: track.title, query: track.query })} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-white/25">
+                    <button key={track.title} onClick={() => void searchTopic({ label: track.title, query: track.query })} className="flex min-h-24 min-w-0 max-w-full items-end overflow-hidden rounded-lg border border-white/10 bg-black/20 p-3 text-left transition duration-200 hover:scale-[1.02] hover:border-white/25 motion-reduce:transform-none">
                       <span className={`mr-3 size-11 shrink-0 rounded-md bg-gradient-to-br ${track.color}`} />
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{track.title}</span>
@@ -799,7 +887,7 @@ export default function HomePage() {
                   </div>
                   <Headphones size={22} className="text-accent" />
                 </div>
-                <button onClick={() => void createRoom()} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black sm:w-auto">
+                <button onClick={() => openCreateRoom()} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-black sm:w-auto">
                   <Plus size={16} />
                   {t.createRoom}
                 </button>
@@ -906,7 +994,7 @@ function RoomList({
             <Link
               key={room.code}
               href={`/room/${room.code}`}
-              className="grid grid-cols-1 items-center gap-3 rounded-md border border-white/10 bg-black/20 p-3 transition hover:border-accent/40 hover:bg-white/[0.05] sm:grid-cols-[minmax(0,1fr)_auto]"
+              className="grid grid-cols-1 items-center gap-3 rounded-md border border-white/10 bg-black/20 p-3 transition duration-200 hover:scale-[1.01] hover:border-accent/40 hover:bg-white/[0.05] motion-reduce:transform-none sm:grid-cols-[minmax(0,1fr)_auto]"
             >
               <span className="min-w-0">
                 <span className="flex items-center gap-2">
@@ -954,7 +1042,7 @@ function RoomList({
   );
 }
 
-function RecentRoomsPreview({ emptyText, rooms, title }: { emptyText: string; rooms: RoomListItem[]; title: string }) {
+function RecentRoomsPreview({ emptyText, rooms, title }: { emptyText: string; rooms: Array<Pick<RoomListItem, 'code' | 'name' | 'onlineMemberCount' | 'memberCount'>>; title: string }) {
   return (
     <div className="min-w-0 rounded-md border border-white/10 bg-black/20 p-3">
       <div className="flex items-center gap-2">
@@ -970,7 +1058,7 @@ function RecentRoomsPreview({ emptyText, rooms, title }: { emptyText: string; ro
             <Link
               key={room.code}
               href={`/room/${room.code}`}
-              className="min-w-0 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 transition hover:border-accent/40 hover:bg-white/[0.06]"
+              className="min-w-0 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 transition duration-200 hover:scale-[1.02] hover:border-accent/40 hover:bg-white/[0.06] motion-reduce:transform-none"
             >
               <span className="block truncate text-sm font-medium">{room.name}</span>
               <span className="mt-1 block truncate text-xs text-muted">
@@ -988,7 +1076,7 @@ function SearchResultsGrid({ addText, onAdd, tracks }: { addText: string; onAdd:
   return (
     <div className="mt-4 grid w-full min-w-0 max-w-full gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {tracks.map((track) => (
-        <article key={track.videoId} className="group w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition hover:-translate-y-0.5 hover:border-accent/40 hover:bg-white/[0.07]">
+        <article key={track.videoId} className="group w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] transition duration-200 hover:-translate-y-0.5 hover:scale-[1.01] hover:border-accent/40 hover:bg-white/[0.07] motion-reduce:transform-none">
           <div className="relative aspect-video overflow-hidden bg-black">
             {track.thumbnailUrl ? (
               <img src={track.thumbnailUrl} alt="" className="size-full object-cover opacity-85 transition duration-300 group-hover:scale-105 group-hover:opacity-100" />

@@ -5,6 +5,7 @@ import { PlayerSyncModule } from './player-sync/player-sync.module';
 import { PersonalModule } from './personal/personal.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { QueueModule } from './queue/queue.module';
+import { StatsModule } from './stats/stats.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { UsersModule } from './users/users.module';
 import { WebsocketModule } from './websocket/websocket.module';
@@ -25,6 +26,7 @@ import { YoutubeModule } from './youtube/youtube.module';
     QueueModule,
     PlayerSyncModule,
     PersonalModule,
+    StatsModule,
     WebsocketModule
   ]
 })

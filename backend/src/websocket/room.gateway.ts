@@ -88,6 +88,13 @@ export class RoomGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { ok: true as const };
   }
 
+  @SubscribeMessage('room:update')
+  async updateRoom(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string; name: string; isPrivate: boolean }) {
+    const user = this.getSocketUser(client);
+    await this.roomsService.update(payload.roomCode, { name: payload.name, isPrivate: payload.isPrivate }, user.id);
+    return this.broadcastRoomState(payload.roomCode, user.id);
+  }
+
   @SubscribeMessage('room:delete')
   async deleteRoom(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() payload: { roomCode: string }) {
     const user = this.getSocketUser(client);

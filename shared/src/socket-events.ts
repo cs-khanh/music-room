@@ -2,6 +2,14 @@ import type { RoomPlayerState } from './player';
 import type { RoomQueueItem } from './queue';
 import type { Room, RoomMember } from './room';
 
+export type RoomChatMessage = {
+  id: string;
+  userId: number;
+  username: string;
+  message: string;
+  createdAt: string;
+};
+
 export type ServerToClientEvents = {
   'room:deleted': (payload: { roomCode: string }) => void;
   'room:kicked': (payload: { roomCode: string }) => void;
@@ -13,6 +21,8 @@ export type ServerToClientEvents = {
   'room:player:seek': (state: RoomPlayerState) => void;
   'room:player:next': (payload: { state: RoomPlayerState; queue: RoomQueueItem[] }) => void;
   'room:player:force-sync': (state: RoomPlayerState) => void;
+  'room:chat:history': (messages: RoomChatMessage[]) => void;
+  'room:chat:message': (message: RoomChatMessage) => void;
   error: (payload: { code: string; message: string }) => void;
 };
 
@@ -35,4 +45,7 @@ export type ClientToServerEvents = {
   'room:player:ended': (payload: { roomCode: string }, callback?: (payload: PlayerQueuePayload) => void) => void;
   'room:player:sync': (payload: { roomCode: string }, callback?: (state: RoomPlayerState) => void) => void;
   'room:player:force-sync': (payload: { currentTime?: number; roomCode: string }, callback?: (state: RoomPlayerState) => void) => void;
+  'room:chat:history': (payload: { roomCode: string }) => void;
+  'room:chat:send': (payload: { roomCode: string; message: string }, callback?: (message: RoomChatMessage) => void) => void;
+  'room:update': (payload: { roomCode: string; name: string; isPrivate: boolean }, callback?: (room: Room) => void) => void;
 };

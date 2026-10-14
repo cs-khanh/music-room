@@ -7,13 +7,19 @@ import {
   Check,
   Copy,
   Crown,
+  Bell,
+  BellOff,
   Heart,
+  Globe2,
+  LockKeyhole,
   LogOut,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCcw,
   Search,
+  Send,
   SkipForward,
   Trash2,
   GripVertical,
@@ -24,12 +30,12 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react';
-import type { PlayerQueuePayload, Room, RoomMember, RoomPlayerState, RoomQueueItem, YouTubeVideo } from '@music-room/shared';
+import type { PlayerQueuePayload, Room, RoomChatMessage, RoomMember, RoomPlayerState, RoomQueueItem, YouTubeVideo } from '@music-room/shared';
 import { YouTubeRoomPlayer, type YouTubeRoomPlayerHandle } from '@/components/player/youtube-room-player';
 import { ApiError } from '@/lib/api-client';
 import { connectSocketForUser, getSocket } from '@/lib/socket-client';
 import { authService, type AuthUser } from '@/services/auth.service';
-import { personalService } from '@/services/personal.service';
+import { personalService, type PersonalHistoryItem } from '@/services/personal.service';
 import { playerService } from '@/services/player.service';
 import { queueService } from '@/services/queue.service';
 import { roomsService } from '@/services/rooms.service';
@@ -43,15 +49,28 @@ export default function RoomPage() {
   const roomCode = params.code;
   const copyResetTimeoutRef = useRef<number | null>(null);
   const syncResetTimeoutRef = useRef<number | null>(null);
+  const chatMessagesRef = useRef<HTMLDivElement | null>(null);
+  const chatNotificationsRef = useRef(true);
+  const chatAudioContextRef = useRef<AudioContext | null>(null);
   const skipUnmountLeaveRef = useRef(false);
   const playerRef = useRef<YouTubeRoomPlayerHandle | null>(null);
   const historyVideoIdRef = useRef<string | null>(null);
+  const trendingLoadedRef = useRef(false);
   const searchRequestIdRef = useRef(0);
   const [me, setMe] = useState<AuthUser | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [state, setState] = useState<RoomPlayerState | null>(null);
   const [queue, setQueue] = useState<RoomQueueItem[]>([]);
   const [members, setMembers] = useState<RoomMember[]>([]);
+  const [chatMessages, setChatMessages] = useState<RoomChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+  const [chatNotificationsEnabled, setChatNotificationsEnabled] = useState(true);
+  const [listeningHistory, setListeningHistory] = useState<PersonalHistoryItem[]>([]);
+  const [trendingTracks, setTrendingTracks] = useState<YouTubeVideo[]>([]);
+  const [trendingUpdatedAt, setTrendingUpdatedAt] = useState<string | null>(null);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+  const [trendingError, setTrendingError] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<YouTubeVideo[]>([]);
@@ -67,10 +86,90 @@ export default function RoomPage() {
   const [playingQueueItemId, setPlayingQueueItemId] = useState<number | null>(null);
   const [memberAction, setMemberAction] = useState<{ type: 'demote' | 'kick' | 'promote'; userId: number } | null>(null);
   const [deletingRoom, setDeletingRoom] = useState(false);
+  const [editRoomNameOpen, setEditRoomNameOpen] = useState(false);
+  const [roomNameDraft, setRoomNameDraft] = useState('');
+  const [roomIsPrivateDraft, setRoomIsPrivateDraft] = useState(false);
+  const [savingRoomName, setSavingRoomName] = useState(false);
 
   const isOwner = useMemo(() => Boolean(me && members.some((member) => member.userId === me.id && member.role === 'owner')), [me, members]);
   const isRootOwner = useMemo(() => Boolean(me && room?.ownerId === me.id), [me, room]);
   const onlineMembers = useMemo(() => members.filter((member) => member.isOnline), [members]);
+
+  useEffect(() => {
+    const storedPreference = window.localStorage.getItem('music-room-chat-notifications');
+    const enabled = storedPreference === null ? true : storedPreference === 'on';
+    setChatNotificationsEnabled(enabled);
+    chatNotificationsRef.current = enabled;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshTrending = async () => {
+      try {
+        const chart = await youtubeService.trending('VN');
+        if (!cancelled) {
+          trendingLoadedRef.current = true;
+          setTrendingTracks(chart.items);
+          setTrendingUpdatedAt(chart.updatedAt ?? null);
+          setTrendingError(false);
+        }
+      } catch {
+        if (!cancelled && !trendingLoadedRef.current) setTrendingError(true);
+      } finally {
+        if (!cancelled) setTrendingLoading(false);
+      }
+    };
+    void refreshTrending();
+    const intervalId = window.setInterval(() => void refreshTrending(), 60 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    chatNotificationsRef.current = chatNotificationsEnabled;
+  }, [chatNotificationsEnabled]);
+
+  function playChatNotification() {
+    if (!chatNotificationsRef.current) return;
+    try {
+      const AudioContextConstructor = window.AudioContext;
+      const context = chatAudioContextRef.current ?? new AudioContextConstructor();
+      chatAudioContextRef.current = context;
+      if (context.state === 'suspended') void context.resume();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(740, context.currentTime);
+      oscillator.frequency.setValueAtTime(980, context.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.23);
+    } catch {
+      // Audio notifications are optional; chat must keep working if audio is unavailable.
+    }
+  }
+
+  function toggleChatNotifications() {
+    const enabled = !chatNotificationsEnabled;
+    setChatNotificationsEnabled(enabled);
+    chatNotificationsRef.current = enabled;
+    window.localStorage.setItem('music-room-chat-notifications', enabled ? 'on' : 'off');
+    if (enabled) {
+      try {
+        const context = chatAudioContextRef.current ?? new window.AudioContext();
+        chatAudioContextRef.current = context;
+        if (context.state === 'suspended') void context.resume();
+      } catch {
+        // The toggle remains usable if browser audio is unavailable.
+      }
+    }
+  }
 
   const applyPlayerState = useCallback((nextState: RoomPlayerState) => {
     setControlAction(null);
@@ -138,6 +237,11 @@ export default function RoomPage() {
       setQueue(nextRoom.queue.filter((item) => item.status === 'queued'));
       applyPlayerState(nextRoom.playerState);
     };
+    const handleChatHistory = (messages: RoomChatMessage[]) => setChatMessages(messages);
+    const handleChatMessage = (message: RoomChatMessage) => {
+      setChatMessages((current) => [...current.filter((item) => item.id !== message.id), message].slice(-100));
+      if (message.userId !== me?.id) playChatNotification();
+    };
 
     socket.on('room:state', handleRoomState);
     socket.on('room:queue:update', setQueue);
@@ -146,6 +250,8 @@ export default function RoomPage() {
     socket.on('room:player:seek', applyPlayerState);
     socket.on('room:player:force-sync', applyPlayerState);
     socket.on('room:player:next', handleNext);
+    socket.on('room:chat:history', handleChatHistory);
+    socket.on('room:chat:message', handleChatMessage);
     socket.on('room:deleted', (payload) => {
       if (payload.roomCode !== roomCode) {
         return;
@@ -189,8 +295,10 @@ export default function RoomPage() {
       }
 
       joinedSocketId = socketId;
-      socket.emit('room:join', { roomCode });
-      socket.emit('room:player:sync', { roomCode });
+      socket.emit('room:join', { roomCode }, (result?: { ok?: boolean }) => {
+        if (result?.ok === false) return;
+        socket.emit('room:player:sync', { roomCode });
+      });
     }
 
     function handleSocketDisconnect() {
@@ -220,6 +328,8 @@ export default function RoomPage() {
       socket.off('room:player:seek', applyPlayerState);
       socket.off('room:player:force-sync', applyPlayerState);
       socket.off('room:player:next', handleNext);
+      socket.off('room:chat:history', handleChatHistory);
+      socket.off('room:chat:message', handleChatMessage);
       socket.off('room:deleted');
       socket.off('room:kicked');
       socket.off('room:owner:changed');
@@ -235,8 +345,15 @@ export default function RoomPage() {
     }
 
     historyVideoIdRef.current = state.currentVideoId;
-    void personalService.addHistory(state.currentVideoId).catch(() => undefined);
+    void personalService.addHistory(state.currentVideoId).then((item) => {
+      setListeningHistory((current) => [item, ...current.filter((entry) => entry.id !== item.id)].slice(0, 50));
+    }).catch(() => undefined);
   }, [me, state?.currentVideoId]);
+
+  useEffect(() => {
+    const container = chatMessagesRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [chatMessages]);
 
   useEffect(() => {
     if (!me || isOwner) {
@@ -275,11 +392,15 @@ export default function RoomPage() {
   async function loadRoom() {
     try {
       const currentUser = await authService.me();
-      const favorites = await personalService.favorites().catch(() => []);
+      const [favorites, history] = await Promise.all([
+        personalService.favorites().catch(() => []),
+        personalService.history().catch(() => [])
+      ]);
       const currentRoom = await roomsService.join(roomCode);
 
       setMe(currentUser);
       setFavoriteIds(new Set(favorites.map((item) => item.videoId)));
+      setListeningHistory(history);
       setRoom(currentRoom);
       applyPlayerState(currentRoom.playerState);
       setQueue(currentRoom.queue.filter((item) => item.status === 'queued'));
@@ -297,6 +418,67 @@ export default function RoomPage() {
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await performSearch(query);
+  }
+
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = chatDraft.trim();
+    if (!message || sendingChat || !me) return;
+    setSendingChat(true);
+    try {
+      const socket = getSocket();
+      if (!socket.connected) throw new Error('Chat connection is unavailable.');
+      await emitSocketWithAck<RoomChatMessage>((resolve) => {
+        socket.emit('room:chat:send', { message, roomCode }, resolve);
+      });
+      setChatDraft('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send message.');
+    } finally {
+      setSendingChat(false);
+    }
+  }
+
+  async function saveRoomName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = roomNameDraft.trim();
+    if (!name || savingRoomName) return;
+    setSavingRoomName(true);
+    setError(null);
+    try {
+      const socket = getSocket();
+      const updatedRoom = socket.connected
+        ? await emitSocketWithAck<Room>((resolve) => socket.emit('room:update', { isPrivate: roomIsPrivateDraft, name, roomCode }, resolve))
+        : await roomsService.update(roomCode, { isPrivate: roomIsPrivateDraft, name });
+      setRoom(updatedRoom);
+      setMembers(updatedRoom.members);
+      setQueue(updatedRoom.queue.filter((item) => item.status === 'queued'));
+      setEditRoomNameOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update room name.');
+    } finally {
+      setSavingRoomName(false);
+    }
+  }
+
+  async function toggleRoomVisibility() {
+    if (!room || savingRoomName) return;
+    const isPrivate = !room.isPrivate;
+    setSavingRoomName(true);
+    setError(null);
+    try {
+      const socket = getSocket();
+      const updatedRoom = socket.connected
+        ? await emitSocketWithAck<Room>((resolve) => socket.emit('room:update', { isPrivate, name: room.name, roomCode }, resolve))
+        : await roomsService.update(roomCode, { isPrivate, name: room.name });
+      setRoom(updatedRoom);
+      setMembers(updatedRoom.members);
+      setQueue(updatedRoom.queue.filter((item) => item.status === 'queued'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update room visibility.');
+    } finally {
+      setSavingRoomName(false);
+    }
   }
 
   async function performSearch(searchQuery: string) {
@@ -721,8 +903,42 @@ export default function RoomPage() {
           <Link href="/" className="text-sm text-accent">
             Back home
           </Link>
-          <h1 className="mt-1 truncate text-xl font-semibold sm:text-2xl">{room?.name ?? roomCode}</h1>
-          <p className="text-sm text-muted">Code {roomCode}</p>
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-xl font-semibold sm:text-2xl">{room?.name ?? roomCode}</h1>
+            {isOwner ? (
+              <button
+                aria-label="Edit room name"
+                className="grid size-8 shrink-0 place-items-center rounded-md border border-white/10 text-muted hover:border-accent/40 hover:text-accent"
+                onClick={() => { setRoomNameDraft(room?.name ?? ''); setRoomIsPrivateDraft(room?.isPrivate ?? false); setEditRoomNameOpen(true); }}
+                title="Edit room name"
+                type="button"
+              >
+                <Pencil size={15} />
+              </button>
+            ) : null}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <span>Code {roomCode}</span>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              {room?.isPrivate ? <LockKeyhole size={13} /> : <Globe2 size={13} />}
+              {room?.isPrivate ? 'Private room' : 'Public room'}
+            </span>
+            {isOwner ? (
+              <button
+                aria-checked={!room?.isPrivate}
+                aria-label={room?.isPrivate ? 'Make room public' : 'Make room private'}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 disabled:cursor-wait disabled:opacity-50 ${room?.isPrivate ? 'border-white/15 bg-white/10' : 'border-accent/60 bg-accent/80'}`}
+                disabled={savingRoomName}
+                onClick={() => void toggleRoomVisibility()}
+                role="switch"
+                title={room?.isPrivate ? 'Make public' : 'Make private'}
+                type="button"
+              >
+                <span className={`size-3.5 rounded-full bg-white shadow-sm transition-transform ${room?.isPrivate ? 'translate-x-0.5' : 'translate-x-[18px]'}`} />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:flex sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
           <button
@@ -760,9 +976,38 @@ export default function RoomPage() {
         </div>
       </header>
 
+      {editRoomNameOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditRoomNameOpen(false); }}>
+          <form onSubmit={saveRoomName} className="w-full max-w-md rounded-xl border border-white/10 bg-[#151922] p-5 shadow-2xl">
+            <h2 className="text-lg font-semibold">Room settings</h2>
+            <label className="mt-4 block text-sm text-muted" htmlFor="edit-room-name">Room name</label>
+            <input
+              autoFocus
+              id="edit-room-name"
+              className="mt-1 h-11 w-full rounded-md border border-white/10 bg-black/25 px-3 text-sm outline-none focus:border-accent/60"
+              maxLength={255}
+              onChange={(event) => setRoomNameDraft(event.target.value)}
+              required
+              value={roomNameDraft}
+            />
+            <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+              <input checked={roomIsPrivateDraft} className="mt-1 accent-accent" onChange={(event) => setRoomIsPrivateDraft(event.target.checked)} type="checkbox" />
+              <span>
+                <span className="block text-sm font-medium">Private room</span>
+                <span className="mt-0.5 block text-xs text-muted">This room will be hidden from the public room list.</span>
+              </span>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setEditRoomNameOpen(false)} className="h-10 rounded-md border border-white/10 px-4 text-sm text-muted hover:text-foreground">Cancel</button>
+              <button disabled={savingRoomName} className="h-10 rounded-md bg-accent px-4 text-sm font-semibold text-black disabled:opacity-60">{savingRoomName ? 'Saving...' : 'Save name'}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {error ? <p className="mt-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger">{error}</p> : null}
 
-      <section className="mt-4 grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <section className="mt-4 grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
           <YouTubeRoomPlayer ref={playerRef} isOwner={isOwner} state={state} onEnded={handleEnded} onProgress={setProgress} />
 
@@ -845,9 +1090,9 @@ export default function RoomPage() {
 
         </div>
 
-        <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+        <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4 xl:max-h-[min(70vh,52rem)] xl:overflow-y-auto">
           <h2 className="text-lg font-semibold">Queue</h2>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-3 xl:max-h-[min(32vh,24rem)] xl:overflow-y-auto xl:pr-1">
             {queue.length === 0 ? (
               <div className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">No upcoming songs.</div>
             ) : (
@@ -918,7 +1163,7 @@ export default function RoomPage() {
 
           <div className="mt-5 rounded-lg border border-white/10 bg-black/20 p-4">
             <h3 className="text-sm font-semibold">Members</h3>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-2 xl:max-h-[min(28vh,20rem)] xl:overflow-y-auto xl:pr-1">
               {members.map((member) => {
                 const isMe = me?.id === member.userId;
                 return (
@@ -995,9 +1240,92 @@ export default function RoomPage() {
               })}
             </div>
           </div>
+
+          <div className="mt-5 flex min-h-72 flex-col rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Room chat</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">{chatMessages.length} / 100</span>
+                <button
+                  aria-label={chatNotificationsEnabled ? 'Turn chat notifications off' : 'Turn chat notifications on'}
+                  aria-pressed={chatNotificationsEnabled}
+                  className={`grid size-8 place-items-center rounded-md border ${chatNotificationsEnabled ? 'border-accent/40 text-accent' : 'border-white/10 text-muted hover:text-foreground'}`}
+                  onClick={toggleChatNotifications}
+                  title={chatNotificationsEnabled ? 'Notifications on' : 'Notifications off'}
+                  type="button"
+                >
+                  {chatNotificationsEnabled ? <Bell size={15} /> : <BellOff size={15} />}
+                </button>
+              </div>
+            </div>
+            <div ref={chatMessagesRef} className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
+              {chatMessages.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted">No messages yet. Say hello!</p>
+              ) : chatMessages.map((message) => {
+                const isOwnMessage = message.userId === me?.id;
+                return (
+                  <div key={message.id} className={`flex min-w-0 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[88%] min-w-0 rounded-lg border px-3 py-2 ${isOwnMessage ? 'border-accent/35 bg-accent/15' : 'border-white/10 bg-white/[0.04]'}`}>
+                      <div className={`flex items-baseline gap-2 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                        <span className={`truncate text-xs font-semibold ${isOwnMessage ? 'text-accent' : 'text-foreground'}`}>{message.username}</span>
+                        <time className="shrink-0 text-[10px] text-muted" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
+                      </div>
+                      <p className={`mt-0.5 break-words text-sm ${isOwnMessage ? 'text-accent/95' : 'text-white/85'}`}>{message.message}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <form onSubmit={sendChatMessage} className="mt-3 flex gap-2">
+              <input
+                aria-label="Chat message"
+                className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-accent/60"
+                maxLength={500}
+                onChange={(event) => setChatDraft(event.target.value)}
+                placeholder="Write a message..."
+                value={chatDraft}
+              />
+              <button aria-label="Send message" className="grid size-10 shrink-0 place-items-center rounded-md bg-accent text-black disabled:opacity-50" disabled={!chatDraft.trim() || sendingChat}>
+                <Send size={16} />
+              </button>
+            </form>
+          </div>
         </aside>
 
-        <section className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+        <div className="grid min-w-0 gap-4 xl:col-span-2 xl:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.35fr)]">
+          <aside className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold">Listening history</h2>
+              <span className="text-xs text-muted">{listeningHistory.length} / 50</span>
+            </div>
+            {listeningHistory.length === 0 ? (
+              <p className="mt-4 rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">Songs played by you in rooms will appear here.</p>
+            ) : (
+              <div className="mt-4 max-h-[30rem] space-y-2 overflow-y-auto pr-1">
+                {listeningHistory.map((item) => (
+                  <article key={item.id} className="flex min-w-0 items-center gap-2 rounded-md border border-white/5 bg-black/20 p-2">
+                    {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" className="size-12 shrink-0 rounded object-cover" /> : <span className="size-12 shrink-0 rounded bg-white/10" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium" title={item.title}>{item.title}</p>
+                      <p className="mt-0.5 truncate text-[10px] text-muted">{item.channelTitle ?? 'Unknown channel'}</p>
+                      <time className="mt-0.5 block text-[10px] text-muted" dateTime={item.playedAt}>{new Date(item.playedAt).toLocaleString()}</time>
+                    </div>
+                    <button
+                      onClick={() => void add(item.videoId)}
+                      disabled={addingVideoId === item.videoId}
+                      className="grid size-8 shrink-0 place-items-center rounded-md border border-white/10 text-accent transition hover:border-accent/40 disabled:opacity-50"
+                      aria-label={`Add ${item.title} to queue`}
+                      title="Add to queue"
+                    >
+                      <Plus size={15} />
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          <section className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4">
           <form onSubmit={search} className="flex flex-col gap-3 sm:flex-row">
             <div className="flex min-h-14 flex-1 items-center gap-3 rounded-md border border-white/10 bg-black/25 px-4 py-4 sm:min-h-12 sm:py-0">
               <Search size={20} className="shrink-0 text-muted sm:size-[18px]" />
@@ -1032,6 +1360,42 @@ export default function RoomPage() {
               </article>
             ))}
           </div>
+          </section>
+        </div>
+
+        <section className="min-w-0 rounded-lg border border-white/10 bg-panel/80 p-3 sm:p-4 xl:col-span-2" aria-labelledby="room-top30-title">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 id="room-top30-title" className="text-lg font-semibold">Top 30 music videos on YouTube · Vietnam</h2>
+            {trendingUpdatedAt ? <p className="text-xs text-muted">Updated {new Date(trendingUpdatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</p> : null}
+          </div>
+          {trendingLoading ? (
+            <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">Loading YouTube chart…</p>
+          ) : trendingError ? (
+            <p className="rounded-md border border-white/10 bg-black/20 p-3 text-sm text-muted">The chart is unavailable right now.</p>
+          ) : (
+            <div className="grid max-h-[34rem] min-w-0 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 2xl:grid-cols-3">
+              {trendingTracks.map((video, index) => (
+                <article key={video.videoId} className="flex min-w-0 items-center gap-2 rounded-md border border-white/5 bg-black/20 p-2">
+                  <span className="w-6 shrink-0 text-center text-xs font-semibold text-accent">{index + 1}</span>
+                  {video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" className="size-12 shrink-0 rounded object-cover" /> : <span className="size-12 shrink-0 rounded bg-white/10" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium" title={video.title}>{video.title}</p>
+                    <p className="mt-0.5 truncate text-[10px] text-muted">{video.channelTitle}</p>
+                  </div>
+                  <button
+                    onClick={() => void add(video.videoId)}
+                    disabled={addingVideoId === video.videoId}
+                    className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-accent px-2 text-xs font-semibold text-black transition hover:bg-[#55d8bb] disabled:opacity-50"
+                    aria-label={`Add ${video.title} to queue`}
+                    title="Add to queue"
+                  >
+                    <Plus size={15} />
+                    {addingVideoId === video.videoId ? 'Adding' : 'Add'}
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </section>
     </main>

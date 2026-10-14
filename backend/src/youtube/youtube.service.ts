@@ -60,6 +60,72 @@ export class YoutubeService {
     return response;
   }
 
+  async trending(region: string): Promise<YouTubeSearchResponse> {
+    const normalizedRegion = region?.trim().toUpperCase();
+    if (!['VN', 'US', 'GB'].includes(normalizedRegion)) {
+      throw new BadRequestException('Trending region must be VN, US, or GB.');
+    }
+
+    const queryText = `trending:music:top30:${normalizedRegion}`;
+    const queryHash = createHash('sha256').update(queryText).digest('hex');
+    const cached = await this.prisma.youtubeSearchCache.findUnique({ where: { queryHash } });
+    if (cached && cached.expiresAt > new Date()) {
+      const result = cached.resultJson as YouTubeSearchResponse;
+      return { ...result, updatedAt: result.updatedAt ?? cached.createdAt.toISOString() };
+    }
+
+    const url = new URL('https://www.googleapis.com/youtube/v3/videos');
+    url.searchParams.set('part', 'snippet,contentDetails,status');
+    url.searchParams.set('chart', 'mostPopular');
+    url.searchParams.set('regionCode', normalizedRegion);
+    url.searchParams.set('videoCategoryId', '10');
+    url.searchParams.set('maxResults', '30');
+    url.searchParams.set('key', this.getApiKey());
+
+    const data = await this.fetchJson<YouTubeTrendingApiResponse>(url);
+    const videos: YouTubeVideo[] = data.items.map((item) => {
+      const thumbnails = item.snippet.thumbnails;
+      return {
+        videoId: item.id,
+        title: item.snippet.title,
+        channelTitle: item.snippet.channelTitle,
+        thumbnailUrl: thumbnails.maxres?.url ?? thumbnails.high?.url ?? thumbnails.medium?.url ?? thumbnails.default?.url ?? '',
+        durationSeconds: parseYouTubeDuration(item.contentDetails.duration),
+        embeddable: item.status.embeddable
+      };
+    });
+    const response: YouTubeSearchResponse = { items: videos, updatedAt: new Date().toISOString() };
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    await Promise.all(videos.map((video, index) => this.prisma.youtubeVideoCache.upsert({
+      create: {
+        videoId: video.videoId,
+        title: video.title,
+        channelTitle: video.channelTitle,
+        thumbnailUrl: video.thumbnailUrl,
+        durationSeconds: video.durationSeconds,
+        embeddable: video.embeddable,
+        rawJson: data.items[index]
+      },
+      update: {
+        title: video.title,
+        channelTitle: video.channelTitle,
+        thumbnailUrl: video.thumbnailUrl,
+        durationSeconds: video.durationSeconds,
+        embeddable: video.embeddable,
+        rawJson: data.items[index]
+      },
+      where: { videoId: video.videoId }
+    })));
+
+    await this.prisma.youtubeSearchCache.upsert({
+      create: { queryHash, queryText, resultJson: response, expiresAt },
+      update: { queryText, resultJson: response, expiresAt },
+      where: { queryHash }
+    });
+    return response;
+  }
+
   async getVideo(videoId: string): Promise<YouTubeVideo> {
     if (!videoId) {
       throw new BadRequestException('videoId is required.');
@@ -203,5 +269,18 @@ type YouTubeVideosApiResponse = {
     status: {
       embeddable: boolean;
     };
+  }>;
+};
+
+type YouTubeTrendingApiResponse = {
+  items: Array<{
+    id: string;
+    snippet: {
+      title: string;
+      channelTitle: string;
+      thumbnails: Record<string, { url: string } | undefined>;
+    };
+    contentDetails: { duration: string };
+    status: { embeddable: boolean };
   }>;
 };

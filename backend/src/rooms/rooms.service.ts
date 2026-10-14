@@ -1,6 +1,6 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { getRealCurrentTime, type MyRooms } from '@music-room/shared';
+import { getRealCurrentTime, type MyRooms, type PublicRoom } from '@music-room/shared';
 import { serializePlayerState, serializeQueueItem, serializeRoomMember } from '../common/prisma/serializers';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -87,6 +87,42 @@ export class RoomsService {
       owned: owned.map((member) => this.serializeRoomListItem(member.room, member)),
       recentJoined: joined.map((member) => this.serializeRoomListItem(member.room, member))
     };
+  }
+
+  async publicRooms(): Promise<PublicRoom[]> {
+    const roomInclude = {
+      currentQueueItem: true,
+      members: { select: { isOnline: true } }
+    } as const;
+    const playingRooms = await this.prisma.room.findMany({
+      include: {
+        ...roomInclude
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 6,
+      where: { isPrivate: false, playerStatus: 'playing' }
+    });
+    const otherRooms = playingRooms.length < 6
+      ? await this.prisma.room.findMany({
+          include: { ...roomInclude },
+          orderBy: { updatedAt: 'desc' },
+          take: 6 - playingRooms.length,
+          where: { isPrivate: false, playerStatus: { not: 'playing' } }
+        })
+      : [];
+
+    return [...playingRooms, ...otherRooms].map((room) => ({
+      id: Number(room.id),
+      code: room.code,
+      name: room.name,
+      playerStatus: room.playerStatus,
+      currentVideoId: room.currentVideoId,
+      currentTitle: room.currentQueueItem?.title ?? null,
+      memberCount: room.members.length,
+      onlineMemberCount: room.members.filter((member) => member.isOnline).length,
+      createdAt: room.createdAt.toISOString(),
+      updatedAt: room.updatedAt.toISOString(),
+    }));
   }
 
   async update(code: string, dto: UpdateRoomDto, userId: number) {

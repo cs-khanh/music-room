@@ -467,6 +467,105 @@ async function youtubeVideo(env, videoId) {
   return video;
 }
 
+async function youtubeTrending(env, regionInput) {
+  const region = (regionInput ?? "").trim().toUpperCase();
+  if (!["VN", "US", "GB"].includes(region))
+    fail(400, "Trending region must be VN, US, or GB.");
+  const queryText = `trending:music:top30:${region}`;
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(queryText),
+  );
+  const queryHash = [...new Uint8Array(hash)]
+    .map((x) => x.toString(16).padStart(2, "0"))
+    .join("");
+  const cached = await env.DB.prepare(
+    "SELECT result_json,created_at FROM youtube_search_cache WHERE query_hash=? AND expires_at>?",
+  )
+    .bind(queryHash, isoNow())
+    .first();
+  if (cached) {
+    const result = JSON.parse(cached.result_json);
+    result.updatedAt ??= cached.created_at;
+    return result;
+  }
+
+  const key = env.YOUTUBE_API_KEY;
+  if (
+    !key ||
+    key === "change-me" ||
+    key === "paste-your-youtube-data-api-v3-key-here"
+  )
+    fail(503, "YOUTUBE_API_KEY is not configured.");
+  const url = new URL("https://www.googleapis.com/youtube/v3/videos");
+  url.searchParams.set("part", "snippet,contentDetails,status");
+  url.searchParams.set("chart", "mostPopular");
+  url.searchParams.set("regionCode", region);
+  url.searchParams.set("videoCategoryId", "10");
+  url.searchParams.set("maxResults", "30");
+  url.searchParams.set("key", key);
+  const response = await fetch(url);
+  if (!response.ok) fail(503, `YouTube API request failed: ${response.status}`);
+  const data = await response.json();
+  const now = isoNow();
+  const videos = (data.items ?? []).map((item) => {
+    const thumbnails = item.snippet.thumbnails ?? {};
+    const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(
+      item.contentDetails.duration ?? "",
+    );
+    return {
+      videoId: item.id,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      thumbnailUrl:
+        thumbnails.maxres?.url ??
+        thumbnails.high?.url ??
+        thumbnails.medium?.url ??
+        thumbnails.default?.url ??
+        "",
+      durationSeconds: match
+        ? Number(match[1] ?? 0) * 3600 +
+          Number(match[2] ?? 0) * 60 +
+          Number(match[3] ?? 0)
+        : null,
+      embeddable: Boolean(item.status.embeddable),
+    };
+  });
+  const result = { items: videos, updatedAt: now };
+  const statements = (data.items ?? []).map((item, index) => {
+    const video = videos[index];
+    return env.DB.prepare(
+      `INSERT INTO youtube_video_cache (video_id,title,channel_title,thumbnail_url,duration_seconds,embeddable,raw_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(video_id) DO UPDATE SET title=excluded.title,channel_title=excluded.channel_title,thumbnail_url=excluded.thumbnail_url,
+      duration_seconds=excluded.duration_seconds,embeddable=excluded.embeddable,raw_json=excluded.raw_json,updated_at=excluded.updated_at`,
+    ).bind(
+      video.videoId,
+      video.title,
+      video.channelTitle,
+      video.thumbnailUrl,
+      video.durationSeconds,
+      video.embeddable ? 1 : 0,
+      JSON.stringify(item),
+      now,
+      now,
+    );
+  });
+  if (statements.length) await env.DB.batch(statements);
+  await env.DB.prepare(
+    `INSERT INTO youtube_search_cache (query_hash,query_text,result_json,expires_at,created_at) VALUES (?,?,?,?,?)
+      ON CONFLICT(query_hash) DO UPDATE SET query_text=excluded.query_text,result_json=excluded.result_json,expires_at=excluded.expires_at`,
+  )
+    .bind(
+      queryHash,
+      queryText,
+      JSON.stringify(result),
+      new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      now,
+    )
+    .run();
+  return result;
+}
+
 async function getYoutubeVideos(env, inputIds) {
   const ids = [...new Set(inputIds)];
   if (!ids.length) return [];
@@ -685,10 +784,44 @@ async function handle(request, env, trustedUser = null) {
     ? await bodyJson(request)
     : null;
   const publicYoutube = path[0] === "youtube";
-  const user = publicYoutube
+  const publicStats = path[0] === "stats";
+  const publicRoomDirectory =
+    path[0] === "public" && path[1] === "rooms" && path.length === 2 && method === "GET";
+  const user = publicYoutube || publicStats || publicRoomDirectory
     ? null
     : (trustedUser ?? (await authenticatedUser(request, env)));
-  if (!publicYoutube && !user) return json({ message: "Unauthorized." }, 401);
+  if (!publicYoutube && !publicStats && !publicRoomDirectory && !user)
+    return json({ message: "Unauthorized." }, 401);
+
+  if (path[0] === "stats" && path[1] === "listeners" && method === "GET") {
+    const row = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT m.user_id) AS listeners FROM room_members m JOIN rooms r ON r.id=m.room_id WHERE m.is_online=1 AND r.player_status='playing'",
+    ).first();
+    return json({ listeners: Number(row?.listeners ?? 0) });
+  }
+
+  if (publicRoomDirectory) {
+    const rows = await env.DB.prepare(
+      `SELECT r.id,r.code,r.name,r.owner_id,r.is_private,r.player_status,r.current_video_id,r.created_at,r.updated_at,
+        (SELECT qi.title FROM room_queue qi WHERE qi.id=r.current_queue_item_id) AS current_title,
+        (SELECT COUNT(*) FROM room_members mc WHERE mc.room_id=r.id) AS member_count,
+        (SELECT COUNT(*) FROM room_members mo WHERE mo.room_id=r.id AND mo.is_online=1) AS online_count
+      FROM rooms r WHERE r.is_private=0
+      ORDER BY CASE WHEN r.player_status='playing' THEN 0 ELSE 1 END,online_count DESC,r.updated_at DESC LIMIT 6`,
+    ).all();
+    return json((rows.results ?? []).map((room) => ({
+      id: Number(room.id),
+      code: room.code,
+      name: room.name,
+      playerStatus: room.player_status,
+      currentVideoId: room.current_video_id,
+      currentTitle: room.current_title,
+      memberCount: Number(room.member_count),
+      onlineMemberCount: Number(room.online_count),
+      createdAt: room.created_at,
+      updatedAt: room.updated_at,
+    })));
+  }
 
   if (
     path[0] === "youtube" &&
@@ -751,6 +884,9 @@ async function handle(request, env, trustedUser = null) {
       )
       .run();
     return json(result);
+  }
+  if (path[0] === "youtube" && method === "GET" && path[1] === "trending") {
+    return json(await youtubeTrending(env, url.searchParams.get("region")));
   }
 
   if (path[0] === "me" && path[1] === "history") {
@@ -1580,6 +1716,11 @@ export class MusicRoom {
         result = await call(route("/join"), "POST");
         socket.serializeAttachment({ ...attachment, joined: true });
         const room = await broadcastRoom();
+        sendSocketEvent(
+          socket,
+          "room:chat:history",
+          (await this.state.storage.get("chat:messages")) ?? [],
+        );
         result = room;
       } else if (!attachment.joined && event !== "room:leave") {
         throw new Error("Join the room before sending events.");
@@ -1594,8 +1735,12 @@ export class MusicRoom {
           await broadcastRoom();
         } catch {}
         result = { ok: true };
+      } else if (event === "room:update") {
+        await call(route(""), "PATCH", { name: payload.name, isPrivate: payload.isPrivate });
+        result = await broadcastRoom();
       } else if (event === "room:delete") {
         result = await call(route(""), "DELETE");
+        await this.state.storage.delete("chat:messages");
         for (const peer of this.state.getWebSockets()) {
           if (!peer.deserializeAttachment()?.joined) continue;
           sendSocketEvent(peer, "room:deleted", { roomCode: code });
@@ -1699,6 +1844,32 @@ export class MusicRoom {
       } else if (event === "room:player:sync") {
         result = await call(route("/player/sync"), "POST");
         sendSocketEvent(socket, "room:player:state", result);
+      } else if (event === "room:chat:history") {
+        sendSocketEvent(
+          socket,
+          "room:chat:history",
+          (await this.state.storage.get("chat:messages")) ?? [],
+        );
+        result = { ok: true };
+      } else if (event === "room:chat:send") {
+        const text = typeof payload.message === "string" ? payload.message.trim() : "";
+        if (!text || text.length > 500)
+          throw new Error("Message must be between 1 and 500 characters.");
+        const chatMessage = {
+          id: crypto.randomUUID(),
+          userId: Number(user.id),
+          username: String(user.username ?? "Member"),
+          message: text,
+          createdAt: new Date().toISOString(),
+        };
+        const updatedMessages = await this.state.storage.transaction(async (txn) => {
+          const messages = (await txn.get("chat:messages")) ?? [];
+          const nextMessages = [...messages, chatMessage].slice(-100);
+          await txn.put("chat:messages", nextMessages);
+          return nextMessages;
+        });
+        broadcast("room:chat:message", chatMessage);
+        result = chatMessage;
       } else {
         throw new Error("Unknown realtime event.");
       }

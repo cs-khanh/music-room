@@ -10,4 +10,5 @@ export type YouTubeVideo = {
 export type YouTubeSearchResponse = {
   items: YouTubeVideo[];
   nextPageToken?: string;
+  updatedAt?: string;
 };

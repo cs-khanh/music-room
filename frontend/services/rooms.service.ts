@@ -1,7 +1,11 @@
-import type { MyRooms, Room, RoomMember } from '@music-room/shared';
+import type { MyRooms, PublicRoom, Room, RoomMember } from '@music-room/shared';
 import { apiClient } from '@/lib/api-client';
 
 export const roomsService = {
+  publicRooms() {
+    return apiClient<PublicRoom[]>('/public/rooms');
+  },
+
   create(payload: { name: string; code?: string; isPrivate?: boolean; allowMemberAddSong?: boolean }) {
     return apiClient<Room>('/rooms', {
       body: payload,
